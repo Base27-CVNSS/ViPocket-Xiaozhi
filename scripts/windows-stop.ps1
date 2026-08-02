@@ -2,10 +2,20 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 $PidFile = Join-Path $Root '.vipocket\portable.pid'
 
+function Test-OwnedProcess {
+  param([int]$ProcessId)
+  try {
+    $details = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction SilentlyContinue
+    return ($details -and $details.CommandLine -and $details.CommandLine.Contains($Root))
+  } catch {
+    return $false
+  }
+}
+
 function Stop-ProcessTree {
   param([int]$ProcessId)
   $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
-  if ($process) {
+  if ($process -and (Test-OwnedProcess -ProcessId $ProcessId)) {
     & taskkill.exe /PID $ProcessId /T /F 2>$null | Out-Null
     Start-Sleep -Milliseconds 800
     return $true
@@ -19,8 +29,7 @@ function Stop-OwnedPortProcess {
     $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     foreach ($connection in $connections) {
       $pidValue = [int]$connection.OwningProcess
-      $details = Get-CimInstance Win32_Process -Filter "ProcessId=$pidValue" -ErrorAction SilentlyContinue
-      if ($details -and $details.CommandLine -and $details.CommandLine.Contains($Root)) {
+      if (Test-OwnedProcess -ProcessId $pidValue) {
         Stop-ProcessTree -ProcessId $pidValue | Out-Null
       }
     }

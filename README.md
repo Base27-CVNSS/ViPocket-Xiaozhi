@@ -15,6 +15,29 @@
 
 ---
 
+## ⚡ Windows: tải về và chạy một lần
+
+Không cần Git và không cần tự gõ `npm install`.
+
+1. Tải ZIP, giải nén.
+2. Nhấp đúp **`START-VIPOCKET.cmd`**.
+3. Launcher tự kiểm tra/cài Node.js LTS, cài dependency, tạo `.env`, khởi động hai dịch vụ và chỉ mở trình duyệt sau khi hệ thống sẵn sàng.
+
+```text
+START-VIPOCKET.cmd    Cài đặt và chạy tự động
+STOP-VIPOCKET.cmd     Dừng toàn bộ ViPocket
+REPAIR-VIPOCKET.cmd   Xóa dependency cũ, cài lại và chạy
+```
+
+Địa chỉ đúng:
+
+- Giao diện: `http://127.0.0.1:5173`
+- Gateway health: `http://127.0.0.1:8787/health`
+
+> Không mở cổng `8787` như trang giao diện. Đây là gateway API. Khi thấy `ERR_CONNECTION_REFUSED`, nghĩa là tiến trình chưa chạy; hãy dùng `START-VIPOCKET.cmd`.
+
+---
+
 ## 1. ViPocket-Xiaozhi là gì?
 
 **ViPocket-Xiaozhi** là một bộ mã nguồn mở gồm hai thành phần:

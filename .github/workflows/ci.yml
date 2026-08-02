@@ -25,11 +25,42 @@ jobs:
       - name: Install
         run: npm install --no-audit --no-fund
 
+      - name: Syntax checks
+        run: |
+          node --check scripts/portable-runner.mjs
+          node --check apps/gateway/src/index.mjs
+          node --check apps/gateway/src/activation-service.mjs
+          node --check apps/web/src/main.js
+          node --check apps/web/src/audio/voice-engine.js
+
       - name: Test gateway
         run: npm test
 
       - name: Build web
         run: npm run build
+
+      - name: Smoke-test production runner
+        shell: bash
+        run: |
+          cp .env.example .env
+          npm start > /tmp/vipocket.log 2>&1 &
+          APP_PID=$!
+          cleanup() {
+            kill "$APP_PID" 2>/dev/null || true
+            wait "$APP_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:5173/ >/tmp/vipocket-index.html \
+              && curl -fsS http://127.0.0.1:8787/health >/tmp/vipocket-health.json; then
+              break
+            fi
+            sleep 1
+          done
+
+          grep -q 'ViPocket' /tmp/vipocket-index.html
+          grep -q 'vipocket-gateway' /tmp/vipocket-health.json
 
   windows-portable:
     if: github.event_name != 'pull_request'
@@ -43,6 +74,27 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Validate PowerShell launchers
+        shell: pwsh
+        run: |
+          $files = @(
+            'scripts\windows-one-click.ps1',
+            'scripts\windows-stop.ps1'
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | Format-List | Out-String | Write-Error
+              throw "PowerShell syntax error in $file"
+            }
+          }
 
       - name: Install and build
         shell: pwsh
@@ -95,7 +147,48 @@ jobs:
           No Git, Node.js installation or npm install is required.
           "@ | Set-Content -LiteralPath (Join-Path $stage 'PORTABLE-BUILD.txt') -Encoding UTF8
 
-          $zipPath = Join-Path $releaseRoot 'ViPocket-Xiaozhi-Windows-x64.zip'
+      - name: Smoke-test assembled Windows folder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $PWD 'release\ViPocket-Xiaozhi'
+          Copy-Item -LiteralPath (Join-Path $stage '.env.example') -Destination (Join-Path $stage '.env') -Force
+          $node = Join-Path $stage 'runtime\node.exe'
+          $runner = Join-Path $stage 'scripts\portable-runner.mjs'
+          $log = Join-Path $stage 'portable-smoke.log'
+          $command = '"{0}" "{1}" 1>>"{2}" 2>&1' -f $node, $runner, $log
+          $process = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/c', $command) -WorkingDirectory $stage -WindowStyle Hidden -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 90; $i++) {
+              Start-Sleep -Seconds 1
+              try {
+                $web = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:5173/' -TimeoutSec 2
+                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -TimeoutSec 2
+                if ($web.StatusCode -eq 200 -and $web.Content -match 'ViPocket' -and $health.service -eq 'vipocket-gateway') {
+                  $ready = $true
+                  break
+                }
+              } catch {}
+              if ($process.HasExited) { break }
+            }
+            if (-not $ready) {
+              if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 100 | Out-Host }
+              throw 'Assembled Windows package did not pass health checks.'
+            }
+          } finally {
+            if (-not $process.HasExited) {
+              & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null
+            }
+          }
+
+      - name: Compress Windows portable ZIP
+        shell: pwsh
+        run: |
+          $stage = Join-Path $PWD 'release\ViPocket-Xiaozhi'
+          Remove-Item -LiteralPath (Join-Path $stage '.env') -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $stage 'portable-smoke.log') -Force -ErrorAction SilentlyContinue
+          $zipPath = Join-Path $PWD 'release\ViPocket-Xiaozhi-Windows-x64.zip'
           Compress-Archive -Path $stage -DestinationPath $zipPath -CompressionLevel Optimal -Force
           if (-not (Test-Path $zipPath)) { throw 'Portable ZIP was not created.' }
 

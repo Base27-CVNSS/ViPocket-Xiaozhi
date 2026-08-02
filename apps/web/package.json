@@ -1,6 +1,6 @@
 {
   "name": "@vipocket/web",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1"
   },
-  "dependencies": {
+  "devDependencies": {
     "vite": "^6.3.5"
   }
 }

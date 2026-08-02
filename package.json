@@ -1,6 +1,6 @@
 {
   "name": "vipocket-xiaozhi",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "A bilingual browser voice client and secure gateway compatible with the Xiaozhi WebSocket protocol.",
   "workspaces": [
@@ -12,7 +12,8 @@
     "dev:web": "npm --workspace @vipocket/web run dev",
     "dev:gateway": "npm --workspace @vipocket/gateway run dev",
     "build": "npm --workspace @vipocket/web run build",
-    "start": "npm --workspace @vipocket/gateway run start",
+    "start": "node scripts/portable-runner.mjs",
+    "start:gateway": "npm --workspace @vipocket/gateway run start",
     "test": "npm --workspace @vipocket/gateway run test",
     "check": "npm run test && npm run build"
   },

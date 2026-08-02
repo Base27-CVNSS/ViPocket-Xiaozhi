@@ -52,14 +52,17 @@ function Get-NodeVersion {
 }
 
 function Install-Or-Upgrade-Node {
+  param([bool]$AlreadyInstalled)
+
   $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
   if (-not $winget) {
     throw 'Khong tim thay Node.js va may khong co winget. Hay cai Node.js LTS 20+ roi chay lai START-VIPOCKET.cmd.'
   }
 
-  Write-Step 'Dang tu dong cai dat Node.js LTS bang winget...'
+  $action = if ($AlreadyInstalled) { 'upgrade' } else { 'install' }
+  Write-Step "Dang tu dong $action Node.js LTS bang winget..."
   $arguments = @(
-    'install',
+    $action,
     '--id', 'OpenJS.NodeJS.LTS',
     '-e',
     '--source', 'winget',
@@ -83,7 +86,7 @@ function Ensure-Node {
   $minimum = [Version]'20.11.0'
 
   if (-not $version -or $version -lt $minimum) {
-    Install-Or-Upgrade-Node
+    Install-Or-Upgrade-Node -AlreadyInstalled ([bool]$version)
     $version = Get-NodeVersion
   }
 

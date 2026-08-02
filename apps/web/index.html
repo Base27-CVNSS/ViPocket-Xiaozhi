@@ -131,7 +131,7 @@
     </section>
 
     <footer>
-      <span>ViPocket-Xiaozhi v2.0.0 · MIT</span>
+      <span>ViPocket-Xiaozhi v2.1.0 · MIT</span>
       <span data-i18n="footer.note">Dự án độc lập, tương thích giao thức; không thuộc xiaozhi.me.</span>
     </footer>
   </div>
@@ -147,5 +147,13 @@
   </dialog>
 
   <script type="module" src="/src/main.js"></script>
+  <script type="module">
+    window.addEventListener('load', () => {
+      window.setTimeout(() => {
+        const button = document.querySelector('#testGatewayButton');
+        if (button && !button.disabled) button.click();
+      }, 450);
+    }, { once: true });
+  </script>
 </body>
 </html>

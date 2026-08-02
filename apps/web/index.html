@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#14233f" />
+  <meta name="description" content="ViPocket Xiaozhi — bilingual browser voice companion with a secure local gateway." />
+  <title>ViPocket Xiaozhi</title>
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="ViPocket Xiaozhi home">
+        <span class="logo" aria-hidden="true">V</span>
+        <span><strong>ViPocket</strong><small>Xiaozhi Voice Companion</small></span>
+      </a>
+      <div class="top-actions">
+        <span class="status-pill" id="networkStatus"><i></i><span data-i18n="network.checking">Đang kiểm tra mạng</span></span>
+        <button class="icon-button" id="languageButton" type="button" aria-label="Switch language">EN</button>
+        <button class="icon-button" id="settingsButton" type="button" aria-label="Settings">⚙</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="hero-panel">
+        <div class="eyebrow" data-i18n="hero.eyebrow">LOCAL-FIRST · BILINGUAL · OPEN SOURCE</div>
+        <h1 data-i18n="hero.title">Biến trình duyệt thành một thiết bị thoại Xiaozhi thực thụ.</h1>
+        <p class="hero-copy" data-i18n="hero.copy">Kích hoạt đúng quy trình, bảo vệ token bằng gateway cục bộ, truyền Opus thời gian thực và hỗ trợ ngắt lời.</p>
+        <div class="score-grid" aria-label="Project capability scores">
+          <article><strong>8/10</strong><span data-i18n="score.ui">Prototype UI</span></article>
+          <article><strong>8/10</strong><span data-i18n="score.connection">Kết nối thật</span></article>
+          <article><strong>8/10</strong><span data-i18n="score.voice">Client thoại</span></article>
+        </div>
+        <div class="architecture-line" aria-label="Architecture summary">
+          <span>Browser</span><b>→</b><span>Local Gateway</span><b>→</b><span>Xiaozhi</span>
+        </div>
+      </section>
+
+      <section class="console" aria-live="polite">
+        <div class="console-head">
+          <div>
+            <span class="section-label" data-i18n="console.label">TRUNG TÂM KẾT NỐI</span>
+            <h2 id="stageTitle" data-i18n="stage.setup.title">Thiết lập gateway</h2>
+          </div>
+          <span class="secure-chip" data-i18n="console.secure">Token ở máy chủ</span>
+        </div>
+
+        <nav class="steps" aria-label="Setup progress">
+          <button class="step active" type="button" data-step="setup"><span>1</span><small data-i18n="steps.setup">Gateway</small></button>
+          <i></i>
+          <button class="step" type="button" data-step="activate"><span>2</span><small data-i18n="steps.activate">Kích hoạt</small></button>
+          <i></i>
+          <button class="step" type="button" data-step="talk"><span>3</span><small data-i18n="steps.talk">Trò chuyện</small></button>
+        </nav>
+
+        <div class="stage" id="setupStage">
+          <div class="mascot" aria-hidden="true"><span>•ᴗ•</span></div>
+          <h3 data-i18n="setup.heading">Kết nối gateway an toàn</h3>
+          <p data-i18n="setup.description">Gateway giữ token Xiaozhi ở phía máy chủ và chuyển tiếp WebSocket với đúng header Device-Id, Client-Id.</p>
+          <label class="field">
+            <span data-i18n="setup.gatewayUrl">Địa chỉ gateway</span>
+            <input id="gatewayUrl" value="http://127.0.0.1:8787" inputmode="url" autocomplete="url" />
+          </label>
+          <label class="field">
+            <span data-i18n="setup.language">Ngôn ngữ thiết bị</span>
+            <select id="deviceLanguage">
+              <option value="vi-VN">Tiếng Việt (vi-VN)</option>
+              <option value="en-US">English (en-US)</option>
+            </select>
+          </label>
+          <button class="primary-button" id="testGatewayButton" type="button" data-i18n="setup.test">Kiểm tra và tiếp tục</button>
+          <div class="notice hidden" id="setupNotice"></div>
+        </div>
+
+        <div class="stage hidden" id="activateStage">
+          <div class="device-row">
+            <div class="device-icon">V</div>
+            <div><small data-i18n="activate.device">Thiết bị trình duyệt</small><strong id="deviceIdLabel">—</strong></div>
+            <span class="badge" id="activationState" data-i18n="activate.ready">Sẵn sàng</span>
+          </div>
+          <h3 data-i18n="activate.heading">Nhận mã kích hoạt thật</h3>
+          <p data-i18n="activate.description">Mã phải do endpoint OTA/Xiaozhi cấp. ViPocket không tạo số ngẫu nhiên để giả lập pairing.</p>
+          <button class="primary-button" id="requestCodeButton" type="button" data-i18n="activate.request">Yêu cầu mã kích hoạt</button>
+          <div class="activation-card hidden" id="activationCard">
+            <span data-i18n="activate.codeLabel">MÃ XÁC MINH THIẾT BỊ</span>
+            <button id="copyCodeButton" class="code-button" type="button"><strong id="activationCode">------</strong><small data-i18n="activate.copy">Sao chép</small></button>
+            <p id="activationMessage"></p>
+            <div class="activation-actions">
+              <a class="secondary-button" href="https://xiaozhi.me/console/agents" target="_blank" rel="noreferrer" data-i18n="activate.openConsole">Mở Xiaozhi Console ↗</a>
+              <button class="primary-button" id="pollButton" type="button" data-i18n="activate.check">Kiểm tra trạng thái</button>
+            </div>
+          </div>
+          <div class="notice hidden" id="activationNotice"></div>
+        </div>
+
+        <div class="stage hidden" id="talkStage">
+          <div class="conversation-status">
+            <span class="badge success" id="connectionBadge" data-i18n="talk.connected">Đã kích hoạt</span>
+            <span class="latency" id="latencyLabel">— ms</span>
+          </div>
+          <div class="voice-orb" id="voiceOrb"><span>●</span><i></i><i></i></div>
+          <h3 id="voiceTitle" data-i18n="talk.ready">Sẵn sàng trò chuyện</h3>
+          <p id="voiceSubtitle" data-i18n="talk.description">Nhấn và giữ để nói. Thả nút để gửi lượt thoại.</p>
+          <div class="meter"><i id="meterFill"></i></div>
+          <div class="transcript" id="transcript">
+            <div><small data-i18n="talk.you">Bạn</small><p id="userTranscript">…</p></div>
+            <div><small data-i18n="talk.assistant">Xiaozhi</small><p id="assistantTranscript">…</p></div>
+          </div>
+          <div class="voice-actions">
+            <button class="secondary-button" id="connectButton" type="button" data-i18n="talk.connect">Kết nối phiên thoại</button>
+            <button class="primary-button push-to-talk" id="pttButton" type="button" disabled data-i18n="talk.hold">Giữ để nói</button>
+            <button class="danger-button" id="interruptButton" type="button" disabled data-i18n="talk.interrupt">Ngắt lời</button>
+          </div>
+          <div class="notice hidden" id="voiceNotice"></div>
+        </div>
+      </section>
+    </main>
+
+    <section class="diagnostics-section">
+      <div class="diagnostics-head">
+        <div><span class="section-label" data-i18n="diagnostics.label">CHẨN ĐOÁN</span><h2 data-i18n="diagnostics.title">Trạng thái hệ thống</h2></div>
+        <button class="text-button" id="clearLogButton" type="button" data-i18n="diagnostics.clear">Xóa nhật ký</button>
+      </div>
+      <div class="diagnostic-grid">
+        <article><small>Secure Context</small><strong id="secureContextValue">—</strong></article>
+        <article><small>WebCodecs Opus</small><strong id="webCodecsValue">—</strong></article>
+        <article><small>AudioWorklet</small><strong id="audioWorkletValue">—</strong></article>
+        <article><small>Gateway</small><strong id="gatewayValue">—</strong></article>
+      </div>
+      <pre id="eventLog" aria-label="Event log"></pre>
+    </section>
+
+    <footer>
+      <span>ViPocket-Xiaozhi v2.0.0 · MIT</span>
+      <span data-i18n="footer.note">Dự án độc lập, tương thích giao thức; không thuộc xiaozhi.me.</span>
+    </footer>
+  </div>
+
+  <dialog id="settingsDialog">
+    <form method="dialog">
+      <header><h2 data-i18n="settings.title">Cài đặt</h2><button value="cancel" aria-label="Close">×</button></header>
+      <label class="field"><span data-i18n="settings.mode">Chế độ hội thoại</span><select id="listenMode"><option value="manual">Manual / Push-to-talk</option><option value="auto">Auto</option><option value="realtime">Realtime</option></select></label>
+      <label class="field"><span data-i18n="settings.bitrate">Opus bitrate</span><select id="opusBitrate"><option value="16000">16 kbps</option><option value="24000" selected>24 kbps</option><option value="32000">32 kbps</option></select></label>
+      <label class="switch-row"><span data-i18n="settings.bargeIn">Cho phép ngắt lời</span><input id="bargeInToggle" type="checkbox" checked /></label>
+      <menu><button class="secondary-button" value="cancel" data-i18n="settings.close">Đóng</button><button class="primary-button" id="saveSettingsButton" value="default" data-i18n="settings.save">Lưu</button></menu>
+    </form>
+  </dialog>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

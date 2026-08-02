@@ -1,11 +1,11 @@
 <div align="center">
 
-# 🌐 ViPocket-Xiaozhi
+# 🌐 ViPocket-Xiaozhi 2.1
 
-### A bilingual, local-first browser voice client with a secure gateway for the Xiaozhi WebSocket protocol
+### Download on Windows, extract, double-click, and run
 
-[![Version](https://img.shields.io/badge/version-2.0.0-2d67f6?style=for-the-badge)](./package.json)
-[![Node](https://img.shields.io/badge/Node.js-%E2%89%A520.11-45d9ff?style=for-the-badge&logo=nodedotjs&logoColor=white)](./package.json)
+[![Windows Portable](https://img.shields.io/badge/Windows-Portable-2d67f6?style=for-the-badge&logo=windows11)](../../actions)
+[![Version](https://img.shields.io/badge/version-2.1.0-45d9ff?style=for-the-badge)](./package.json)
 [![License](https://img.shields.io/badge/license-MIT-4ad295?style=for-the-badge)](./LICENSE)
 [![Protocol](https://img.shields.io/badge/Xiaozhi-WebSocket%20v1-8f6cff?style=for-the-badge)](./docs/PROTOCOL.md)
 
@@ -15,168 +15,120 @@
 
 ---
 
-## ⚡ Windows one-click start
+## Windows quick start
 
-No Git and no manual `npm install` commands are required.
+The **Windows Portable** artifact already contains:
 
-1. Download and extract the ZIP.
-2. Double-click **`START-VIPOCKET.cmd`**.
-3. The launcher checks or installs Node.js LTS, installs dependencies, creates `.env`, starts both services, waits for health checks and then opens the browser.
+- A portable Node.js runtime.
+- Production gateway dependencies.
+- The prebuilt web application.
+- Start, stop, repair, and configuration launchers.
+
+No Git installation, Node.js installation, or manual `npm install` command is required.
 
 ```text
-START-VIPOCKET.cmd    Install and start
-STOP-VIPOCKET.cmd     Stop all ViPocket processes
-REPAIR-VIPOCKET.cmd   Reinstall dependencies and start
+1. Download ViPocket-Xiaozhi-Windows-x64.zip from GitHub Actions.
+2. Extract the full archive.
+3. Double-click START-VIPOCKET.cmd.
+4. Wait for http://127.0.0.1:5173 to open.
 ```
 
-Use `http://127.0.0.1:5173` for the web interface and `http://127.0.0.1:8787/health` for gateway health.
+Windows commands:
+
+```text
+START-VIPOCKET.cmd       Start website and gateway
+STOP-VIPOCKET.cmd        Stop the complete process tree
+REPAIR-VIPOCKET.cmd      Reinstall/rebuild a damaged source package
+CONFIGURE-XIAOZHI.cmd    Edit real Xiaozhi connection settings
+```
+
+```text
+Website:         http://127.0.0.1:5173
+Gateway health:  http://127.0.0.1:8787/health
+```
+
+Port `8787` is the gateway API, not the user interface. The launcher opens the browser only after both local services pass health checks.
 
 ---
 
-## 1. What is ViPocket-Xiaozhi?
+## Architecture
 
-**ViPocket-Xiaozhi** is an open-source workspace with two cooperating applications:
-
-1. A **Web Voice Client** for modern Edge/Chrome browsers. It handles real activation, microphone capture through AudioWorklet, Opus encode/decode through WebCodecs, Xiaozhi conversation events and barge-in.
-2. A **Local Security Gateway** built with Node.js. It keeps upstream tokens server-side, calls the OTA/activation endpoint and proxies WebSocket traffic with authentication headers that browser JavaScript cannot set.
-
-Version 2.0 upgrades the original UI prototype into a serious development platform:
-
-| Capability | Target | Implemented scope |
-|---|---:|---|
-| Prototype UI | **8/10** | Responsive bilingual interface, three-step wizard, diagnostics and event log |
-| Real Xiaozhi connection | **8/10** | OTA activation, stable device identity, single-use tickets and authenticated WebSocket proxy |
-| Complete voice client | **8/10** | AudioWorklet, WebCodecs Opus, PTT, STT/LLM/TTS events, playback and barge-in |
-
-> **No fake verification codes.** ViPocket only displays activation codes returned by the configured OTA/Xiaozhi endpoint. Missing upstream configuration produces an explicit error instead of a random six-digit number.
-
----
-
-## 2. Why a gateway is required
-
-Browser applications cannot safely or reliably provide the full device behavior by themselves:
-
-- The browser WebSocket API does not allow arbitrary handshake headers such as `Authorization`, `Protocol-Version`, `Device-Id` and `Client-Id`.
-- Xiaozhi access tokens must not be embedded in HTML, JavaScript or local storage.
-- Device activation requires stable identity, an OTA request and later polling after the user enters the verification code in the Console.
+ViPocket-Xiaozhi is a browser voice client plus a local security gateway. The gateway protects upstream credentials and supplies WebSocket handshake headers that browser JavaScript cannot set.
 
 ```mermaid
 flowchart LR
     MIC[Microphone] --> AW[AudioWorklet\n16 kHz mono]
-    AW --> ENC[WebCodecs\nOpus encoder]
-    ENC --> BWS[Browser WebSocket]
-    BWS --> GW[ViPocket Gateway\nFastify + WS]
-    GW -->|Authorization\nDevice-Id\nClient-Id| XWS[Xiaozhi WebSocket]
-    XWS --> GW
-    GW --> BWS
-    BWS --> DEC[WebCodecs\nOpus decoder]
+    AW --> OPUS[WebCodecs Opus]
+    OPUS --> WEB[Web Client\n127.0.0.1:5173]
+    WEB <--> GW[Security Gateway\n127.0.0.1:8787]
+    GW <--> OTA[OTA / Activation]
+    GW <--> WS[Xiaozhi WebSocket]
+    WS --> DEC[Opus Decoder]
     DEC --> SPK[Speaker]
-
-    OTA[Xiaozhi OTA / Activation] <--> GW
-    CONSOLE[Xiaozhi Console] --> OTA
 ```
 
----
-
-## 3. Main features
-
-### Real activation
-
-- Stable browser `Device-Id` and `Client-Id`.
-- OTA requests with device-compatible headers.
-- Verification code comes exclusively from `activation.code` returned upstream.
-- Automatic polling until WebSocket configuration becomes available.
-- Optional fixed WebSocket/token mode for self-hosted deployments.
-
-### Real-time audio
-
-- `getUserMedia()` with echo cancellation, noise suppression and AGC.
-- Audio processing in `AudioWorklet` rather than the UI thread.
-- Low-latency resampling to 16 kHz mono and 60 ms frames.
-- Opus encoding and decoding with WebCodecs.
-- Continuous scheduled playback of incoming audio.
-- Pointer, touch and keyboard push-to-talk.
-
-### Conversation protocol
-
-- `hello` handshake and `session_id` tracking.
-- `listen/start`, `listen/stop` and `abort`.
-- `manual`, `auto` and `realtime` mode fields.
-- STT, LLM emotion, TTS state/sentence, alert and MCP message handling.
-- User and assistant transcript panels.
-- Barge-in that stops local playback and notifies the server.
-
-### Security and operations
-
-- Upstream token never reaches the browser.
-- Random short-lived, single-use WebSocket tickets.
-- CORS allowlist, rate limiting, request size limits and security headers.
-- Automatic redaction for authorization/token fields in logs.
-- Loopback binding by default.
-- In-memory sessions with predictable expiration.
+| Capability | Target | Scope |
+|---|---:|---|
+| Prototype UI | **8/10** | Responsive bilingual wizard, transcript and diagnostics |
+| Real Xiaozhi connection | **8/10** | OTA activation, device identity, protected token and WebSocket proxy |
+| Voice client | **8/10** | AudioWorklet, WebCodecs Opus, PTT, STT/LLM/TTS and barge-in |
+| Windows experience | **9/10** | Bundled runtime, health checks, auto-open, stop/repair/configure tools |
 
 ---
 
-## 4. Repository structure
+## What changed in 2.1
+
+### True portable package
+
+The Windows workflow packages `runtime/`, production `node_modules/`, and `apps/web/dist/`. The downloaded artifact does not need a Vite development server or a first-run dependency installation.
+
+### Production runner
+
+`scripts/portable-runner.mjs`:
+
+- Serves the production web build on port `5173`.
+- Starts the gateway as a managed child process on port `8787`.
+- Sends the correct WASM MIME type.
+- Supports SPA fallback.
+- Prevents path traversal.
+- Uses immutable caching for hashed assets and no-store for `index.html`.
+- Shuts down the gateway with the parent runner.
+
+### Self-healing launcher
+
+The Windows launcher:
+
+- Prefers the bundled runtime.
+- Falls back to a suitable system Node.js.
+- Downloads a portable current LTS runtime for a source ZIP when necessary.
+- Installs/builds only when production files are missing.
+- Detects port conflicts.
+- Writes `logs/vipocket.log`.
+- Tracks and terminates the full process tree.
+
+### No fake pairing code
+
+ViPocket displays only `activation.code` returned by the configured OTA/Xiaozhi endpoint. It never generates a random six-digit number and presents it as a valid upstream pairing code.
+
+---
+
+## Connecting to a real Xiaozhi server
+
+The local website and gateway start immediately. A real upstream connection still requires an endpoint/token that the deployer is authorized to use.
+
+Double-click:
 
 ```text
-ViPocket-Xiaozhi/
-├─ apps/web/                  # Browser voice client
-├─ apps/gateway/              # Activation and WebSocket security gateway
-├─ docs/                      # Architecture, protocol, security, deployment
-├─ .github/workflows/ci.yml
-├─ .env.example
-├─ package.json
-├─ README.md
-├─ README.en.md
-└─ LICENSE
-```
-
----
-
-## 5. Requirements
-
-- Node.js 20.11 or newer.
-- A recent Edge/Chrome release with Secure Context, AudioWorklet and WebCodecs Opus support.
-- An OTA/activation endpoint and Xiaozhi WebSocket service you are authorized to use.
-- Microphone access.
-
-Use localhost for development. Use HTTPS/WSS when the browser is not running on the same machine as the gateway.
-
----
-
-## 6. Quick start
-
-```bash
-git clone https://github.com/Base27-CVNSS/ViPocket-Xiaozhi.git
-cd ViPocket-Xiaozhi
-npm install
-cp .env.example .env
-# Edit .env and set XIAOZHI_OTA_URL
-npm run dev
-```
-
-Open `http://127.0.0.1:5173`. The local gateway listens on `http://127.0.0.1:8787` by default.
-
----
-
-## 7. Gateway configuration
-
-```dotenv
-HOST=127.0.0.1
-PORT=8787
-PUBLIC_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-XIAOZHI_OTA_URL=https://your-server.example/ota/
-XIAOZHI_WS_URL=
-XIAOZHI_ACCESS_TOKEN=
-ACTIVATION_POLL_MS=2500
-SESSION_TTL_MS=1800000
-TICKET_TTL_MS=60000
+CONFIGURE-XIAOZHI.cmd
 ```
 
 ### Dynamic OTA mode
 
-The OTA endpoint initially returns activation information:
+```dotenv
+XIAOZHI_OTA_URL=https://your-server.example/ota/
+```
+
+Initial response:
 
 ```json
 {
@@ -188,114 +140,156 @@ The OTA endpoint initially returns activation information:
 }
 ```
 
-After the device is paired, the same endpoint should provide upstream transport information:
+Activated response:
 
 ```json
 {
   "websocket": {
-    "url": "wss://example.org/xiaozhi/v1/",
+    "url": "wss://your-server.example/xiaozhi/v1/",
     "token": "server-issued-token",
     "version": 1
   }
 }
 ```
 
-### Fixed transport mode
+### Fixed WebSocket mode
 
-Set `XIAOZHI_WS_URL` and `XIAOZHI_ACCESS_TOKEN` when a self-hosted server already manages device registration outside the OTA flow.
+```dotenv
+XIAOZHI_WS_URL=wss://your-server.example/xiaozhi/v1/
+XIAOZHI_ACCESS_TOKEN=replace-with-server-side-token
+```
 
----
+After saving `.env`, run `STOP-VIPOCKET.cmd`, then `START-VIPOCKET.cmd`.
 
-## 8. User flow
-
-1. Start the web client and gateway.
-2. Test the gateway from step one.
-3. Request an activation code.
-4. Enter the real upstream-issued code in Xiaozhi Console.
-5. Wait for polling to detect WebSocket configuration.
-6. Open a voice session.
-7. Wait for the server `hello` response and `session_id`.
-8. Hold the talk button, speak and release it.
-9. Incoming Opus packets are decoded and played immediately.
-10. Use Interrupt or start speaking to send an abort event.
+Never commit a real `.env` or upstream token.
 
 ---
 
-## 9. Gateway API
+## Voice flow
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant G as Gateway
+    participant X as Xiaozhi
+
+    B->>G: Activation request / one-time ticket
+    G->>X: OTA request with Device-Id and Client-Id
+    X-->>G: Activation code or WebSocket configuration
+    G-->>B: Public activation state without token
+    B->>G: WebSocket with one-time ticket
+    G->>X: WebSocket with Authorization headers
+    B->>X: hello
+    X-->>B: hello + session_id
+    B->>X: listen/start + binary Opus
+    B->>X: listen/stop
+    X-->>B: stt / llm / tts + binary Opus
+```
+
+---
+
+## Gateway API
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/health` | Health and activation configuration |
-| `POST` | `/api/v1/activation` | Create a browser-device activation session |
-| `GET` | `/api/v1/activation/:id` | Poll activation state |
-| `POST` | `/api/v1/activation/:id/ticket` | Issue one single-use WebSocket ticket |
-| `DELETE` | `/api/v1/activation/:id` | Remove a session |
-| `WS` | `/ws/xiaozhi?ticket=...` | Bidirectional Xiaozhi proxy |
+| `GET` | `/health` | Gateway health and configuration state |
+| `POST` | `/api/v1/activation` | Create an activation session |
+| `GET` | `/api/v1/activation/:id` | Poll pairing state |
+| `POST` | `/api/v1/activation/:id/ticket` | Issue a one-time WebSocket ticket |
+| `DELETE` | `/api/v1/activation/:id` | Delete a session |
+| `WS` | `/ws/xiaozhi?ticket=...` | Proxy JSON and binary frames |
 
 ---
 
-## 10. Build and test
+## Running from source
+
+```bash
+git clone https://github.com/Base27-CVNSS/ViPocket-Xiaozhi.git
+cd ViPocket-Xiaozhi
+npm install
+npm run build
+npm start
+```
+
+Development mode:
+
+```bash
+npm run dev
+```
+
+Tests:
 
 ```bash
 npm test
-npm run build
 npm run check
 ```
 
-The production web output is written to `apps/web/dist/`.
+---
+
+## Windows troubleshooting
+
+### `ERR_CONNECTION_REFUSED`
+
+Run:
+
+```text
+STOP-VIPOCKET.cmd
+START-VIPOCKET.cmd
+```
+
+Then inspect:
+
+```text
+logs\vipocket.log
+```
+
+### Missing source dependencies
+
+Run:
+
+```text
+REPAIR-VIPOCKET.cmd
+```
+
+### Gateway online but activation unavailable
+
+Run `CONFIGURE-XIAOZHI.cmd` and supply a valid authorized endpoint/token. The launcher cannot manufacture upstream access rights.
 
 ---
 
-## 11. Production checklist
+## Security
 
-- Serve the web application over HTTPS.
-- Put the gateway behind a reverse proxy with WebSocket support.
-- Store secrets in environment variables or a secret manager.
-- Add user authentication before exposing the gateway publicly.
-- Replace the in-memory store with Redis for multiple instances.
-- Restrict CORS to exact trusted origins.
-- Add monitoring, log rotation and upstream failure alerts.
+- The gateway binds to `127.0.0.1` by default.
+- Upstream tokens stay in `.env` and gateway memory.
+- Loopback origins are explicitly allowlisted.
+- WebSocket tickets are random, short-lived, and single-use.
+- Logs redact authorization/token fields.
+- Do not expose the gateway publicly without TLS and user authentication.
 
-See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md).
+Documentation:
 
----
-
-## 12. Current limitations
-
-- WebCodecs Opus support depends on browser version.
-- The low-latency resampler is not a studio-grade DSP resampler.
-- Restarting the gateway clears in-memory sessions.
-- User authentication/OAuth is not included yet.
-- MCP messages are surfaced in logs but do not yet have a granular permission UI.
-- Binary protocol v2/v3 timestamp wrappers are not implemented.
-- Final compatibility depends on the selected Xiaozhi server deployment.
+- [Architecture](./docs/ARCHITECTURE.md)
+- [Protocol](./docs/PROTOCOL.md)
+- [Security](./docs/SECURITY.md)
+- [Deployment](./docs/DEPLOYMENT.md)
 
 ---
 
-## 13. Roadmap
+## Honest limitations
 
-- Redis-backed session storage.
-- Audio input/output device selection and diagnostics.
-- Binary protocol v2/v3 with timestamps.
-- MCP permission center and audit history.
-- Local VAD and wake-word support.
-- PWA and Tauri desktop packaging.
-- Mock Xiaozhi integration tests in CI.
-- `turn_id`, `utterance_id`, `audio_pts`, avatar and viseme synchronization.
+The Windows Portable package guarantees that the **local website and local gateway can start without development tools**. Successful communication with a specific Xiaozhi deployment still depends on:
 
----
+- A valid OTA/WebSocket endpoint.
+- A valid token and access rights.
+- Upstream server policy.
+- Browser WebCodecs Opus support and microphone permission.
 
-## 14. References and attribution
-
-ViPocket-Xiaozhi is an independent project informed by the public protocol documentation and implementation behavior of:
-
-- [`78/xiaozhi-esp32`](https://github.com/78/xiaozhi-esp32)
-- [`docs/websocket.md`](https://github.com/78/xiaozhi-esp32/blob/main/docs/websocket.md)
-
-This repository is not affiliated with `xiaozhi.me`, does not represent upstream authors and does not grant rights to upstream names, logos or hosted services. Deployers remain responsible for applicable licenses, service terms and access rights.
+The project does not embed a public secret or fake a successful pairing state.
 
 ---
 
-## 15. License
+## License and attribution
 
-Original ViPocket-Xiaozhi code is available under the [MIT License](./LICENSE). Upstream services, protocols, trademarks and source code remain subject to their respective owners and licenses.
+Original ViPocket-Xiaozhi code is released under the [MIT License](./LICENSE).
+
+This is an independent project informed by the protocol of [`78/xiaozhi-esp32`](https://github.com/78/xiaozhi-esp32). It is not affiliated with or endorsed by `xiaozhi.me` or upstream authors.

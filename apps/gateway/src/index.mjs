@@ -9,6 +9,8 @@ import { config } from './config.mjs';
 import { SessionStore } from './session-store.mjs';
 import { ActivationService } from './activation-service.mjs';
 
+const VERSION = '2.1.0';
+
 const app = Fastify({
   logger: {
     level: config.logLevel,
@@ -89,7 +91,7 @@ async function refreshSession(session) {
 app.get('/health', async () => ({
   ok: true,
   service: 'vipocket-gateway',
-  version: '2.0.0',
+  version: VERSION,
   activationConfigured: Boolean(config.otaUrl || (config.fixedWsUrl && config.fixedAccessToken))
 }));
 

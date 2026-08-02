@@ -15,6 +15,24 @@
 
 ---
 
+## ⚡ Windows one-click start
+
+No Git and no manual `npm install` commands are required.
+
+1. Download and extract the ZIP.
+2. Double-click **`START-VIPOCKET.cmd`**.
+3. The launcher checks or installs Node.js LTS, installs dependencies, creates `.env`, starts both services, waits for health checks and then opens the browser.
+
+```text
+START-VIPOCKET.cmd    Install and start
+STOP-VIPOCKET.cmd     Stop all ViPocket processes
+REPAIR-VIPOCKET.cmd   Reinstall dependencies and start
+```
+
+Use `http://127.0.0.1:5173` for the web interface and `http://127.0.0.1:8787/health` for gateway health.
+
+---
+
 ## 1. What is ViPocket-Xiaozhi?
 
 **ViPocket-Xiaozhi** is an open-source workspace with two cooperating applications:

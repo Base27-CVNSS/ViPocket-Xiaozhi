@@ -1,0 +1,45 @@
+VIPOCKET-XIAOZHI - CHAY 1 PHAT SAU KHI TAI VE
+================================================
+
+WINDOWS 10/11:
+
+1. Giai nen ZIP ra mot thu muc binh thuong.
+2. Nhap dup START-VIPOCKET.cmd.
+3. Lan dau, launcher se tu dong:
+   - Kiem tra/cai Node.js LTS neu may co winget.
+   - Cai dependency bang npm.
+   - Tao tep .env.
+   - Khoi dong gateway tai 127.0.0.1:8787.
+   - Khoi dong giao dien tai 127.0.0.1:5173.
+   - Cho den khi ca hai dich vu san sang roi moi mo trinh duyet.
+
+KHONG CAN:
+- Git.
+- Go lenh git clone.
+- Tu go npm install.
+- Tu mo 127.0.0.1 truoc khi server chay.
+
+CAC TEP QUAN TRONG:
+- START-VIPOCKET.cmd : Cai dat/thuc thi tu dong.
+- STOP-VIPOCKET.cmd  : Dung toan bo tien trinh ViPocket.
+- REPAIR-VIPOCKET.cmd: Xoa dependency cu, cai lai va khoi dong.
+- logs\vipocket-dev.log: Nhat ky khi co loi.
+- .env: Cau hinh endpoint Xiaozhi that.
+
+DIA CHI DUNG:
+- Giao dien: http://127.0.0.1:5173
+- Gateway health: http://127.0.0.1:8787/health
+
+Luu y: http://127.0.0.1:8787 la cong gateway API, khong phai trang giao dien chinh.
+
+KET NOI XIAOZHI THAT:
+Mo .env va dien mot trong hai phuong an:
+
+XIAOZHI_OTA_URL=https://may-chu-cua-ban/ota/
+
+hoac:
+
+XIAOZHI_WS_URL=wss://may-chu-cua-ban/xiaozhi/v1/
+XIAOZHI_ACCESS_TOKEN=token-cua-ban
+
+Khong dua token that len GitHub.

@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  test-and-build:
+  test-build-package:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -28,3 +28,28 @@ jobs:
 
       - name: Build web
         run: npm run build
+
+      - name: Create Windows one-click package
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          mkdir -p release/ViPocket-Xiaozhi
+          rsync -a ./ release/ViPocket-Xiaozhi/ \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'node_modules' \
+            --exclude 'release' \
+            --exclude '.env' \
+            --exclude '.vipocket' \
+            --exclude 'logs'
+          cd release
+          zip -r -9 ViPocket-Xiaozhi-Windows-OneClick.zip ViPocket-Xiaozhi
+
+      - name: Upload Windows one-click package
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ViPocket-Xiaozhi-Windows-OneClick
+          path: release/ViPocket-Xiaozhi-Windows-OneClick.zip
+          if-no-files-found: error
+          retention-days: 30

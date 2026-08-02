@@ -5,7 +5,7 @@ const envSchema = z.object({
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   LOG_LEVEL: z.string().default('info'),
-  PUBLIC_ORIGINS: z.string().default('http://localhost:5173,http://127.0.0.1:5173'),
+  PUBLIC_ORIGINS: z.string().default('http://localhost:5173,http://127.0.0.1:5173,http://localhost:8787,http://127.0.0.1:8787'),
   XIAOZHI_OTA_URL: z.string().url().optional().or(z.literal('')),
   XIAOZHI_WS_URL: z.string().url().optional().or(z.literal('')),
   XIAOZHI_ACCESS_TOKEN: z.string().optional().default(''),

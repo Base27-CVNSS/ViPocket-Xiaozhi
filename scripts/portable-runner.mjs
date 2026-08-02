@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { dirname, extname, join, normalize, resolve } from 'node:path';
+import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
@@ -32,30 +32,32 @@ const mimeTypes = new Map([
   ['.txt', 'text/plain; charset=utf-8']
 ]);
 
-function fail(message) {
-  console.error(`[ViPocket] ${message}`);
+if (!Number.isInteger(webPort) || webPort < 1 || webPort > 65535) {
+  console.error(`[ViPocket] WEB_PORT khong hop le: ${process.env.WEB_PORT}`);
   process.exit(1);
 }
-
 if (!existsSync(join(webRoot, 'index.html'))) {
-  fail(`Khong tim thay web build tai ${webRoot}. Hay chay npm run build hoac REPAIR-VIPOCKET.cmd.`);
+  console.error(`[ViPocket] Khong tim thay web build tai ${webRoot}. Hay chay npm run build hoac REPAIR-VIPOCKET.cmd.`);
+  process.exit(1);
 }
 if (!existsSync(gatewayEntry)) {
-  fail(`Khong tim thay gateway entry tai ${gatewayEntry}.`);
+  console.error(`[ViPocket] Khong tim thay gateway entry tai ${gatewayEntry}.`);
+  process.exit(1);
 }
 
 function safeFilePath(urlPath) {
   const decoded = decodeURIComponent(urlPath.split('?')[0]);
   const clean = normalize(decoded).replace(/^([/\\])+/, '');
   const candidate = resolve(webRoot, clean || 'index.html');
-  if (!candidate.startsWith(webRoot)) return null;
+  if (candidate !== webRoot && !candidate.startsWith(`${webRoot}${sep}`)) return null;
   return candidate;
 }
 
 function cacheHeader(filePath) {
-  const fileName = filePath.split(/[\\/]/).pop() || '';
+  const parts = filePath.split(/[\\/]/);
+  const fileName = parts.at(-1) || '';
   if (fileName === 'index.html') return 'no-cache, no-store, must-revalidate';
-  if (/\.[A-Za-z0-9_-]{8,}\./.test(fileName) || filePath.includes(`${join('assets')}${process.platform === 'win32' ? '\\' : '/'}`)) {
+  if (/\.[A-Za-z0-9_-]{8,}\./.test(fileName) || parts.includes('assets')) {
     return 'public, max-age=31536000, immutable';
   }
   return 'public, max-age=3600';
@@ -89,15 +91,14 @@ const webServer = createServer((request, response) => {
 
     let filePath = safeFilePath(request.url || '/');
     if (!filePath) {
-      response.writeHead(400);
+      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
       response.end('Bad Request');
       return;
     }
 
     if (existsSync(filePath) && statSync(filePath).isDirectory()) filePath = join(filePath, 'index.html');
     if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-      const extension = extname(filePath);
-      if (extension) {
+      if (extname(filePath)) {
         response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
         response.end('Not Found');
         return;
@@ -113,45 +114,54 @@ const webServer = createServer((request, response) => {
   }
 });
 
-webServer.on('error', (error) => {
-  if (error.code === 'EADDRINUSE') fail(`Cong giao dien ${webPort} dang duoc su dung. Chay STOP-VIPOCKET.cmd roi thu lai.`);
-  fail(`Khong the khoi dong web server: ${error.message}`);
-});
-
-const gateway = spawn(process.execPath, [gatewayEntry], {
-  cwd: rootDir,
-  env: { ...process.env, NODE_ENV: 'production' },
-  stdio: 'inherit',
-  windowsHide: true
-});
-
+let gateway = null;
 let shuttingDown = false;
+
 function shutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   webServer.close(() => {});
-  if (!gateway.killed) gateway.kill('SIGTERM');
+  if (gateway && !gateway.killed) gateway.kill('SIGTERM');
   const timer = setTimeout(() => {
-    if (!gateway.killed) gateway.kill('SIGKILL');
+    if (gateway && !gateway.killed) gateway.kill('SIGKILL');
     process.exit(exitCode);
   }, 3000);
   timer.unref();
 }
 
-gateway.on('error', (error) => {
-  console.error('[ViPocket] Gateway process error:', error);
-  shutdown(1);
-});
+function startGateway() {
+  gateway = spawn(process.execPath, [gatewayEntry], {
+    cwd: rootDir,
+    env: { ...process.env, NODE_ENV: 'production' },
+    stdio: 'inherit',
+    windowsHide: true
+  });
 
-gateway.on('exit', (code, signal) => {
-  if (shuttingDown) return;
-  console.error(`[ViPocket] Gateway da dung (code=${code ?? 'null'}, signal=${signal ?? 'none'}).`);
-  shutdown(code || 1);
+  gateway.on('error', (error) => {
+    console.error('[ViPocket] Gateway process error:', error);
+    shutdown(1);
+  });
+
+  gateway.on('exit', (code, signal) => {
+    if (shuttingDown) return;
+    console.error(`[ViPocket] Gateway da dung (code=${code ?? 'null'}, signal=${signal ?? 'none'}).`);
+    shutdown(code || 1);
+  });
+}
+
+webServer.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`[ViPocket] Cong giao dien ${webPort} dang duoc su dung. Chay STOP-VIPOCKET.cmd roi thu lai.`);
+  } else {
+    console.error(`[ViPocket] Khong the khoi dong web server: ${error.message}`);
+  }
+  shutdown(1);
 });
 
 webServer.listen(webPort, webHost, () => {
   console.log(`[ViPocket] Website: http://${webHost}:${webPort}`);
-  console.log(`[ViPocket] Gateway dang khoi dong tai http://127.0.0.1:${process.env.PORT || 8787}`);
+  console.log(`[ViPocket] Gateway: http://127.0.0.1:${process.env.PORT || 8787}`);
+  startGateway();
 });
 
 process.on('SIGINT', () => shutdown(0));

@@ -1,15 +1,17 @@
-name: CI
+name: CI and Windows Portable
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  test-build-package:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -18,10 +20,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install
-        run: npm install
+        run: npm install --no-audit --no-fund
 
       - name: Test gateway
         run: npm test
@@ -29,27 +31,86 @@ jobs:
       - name: Build web
         run: npm run build
 
-      - name: Create Windows one-click package
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          mkdir -p release/ViPocket-Xiaozhi
-          rsync -a ./ release/ViPocket-Xiaozhi/ \
-            --exclude '.git' \
-            --exclude '.github' \
-            --exclude 'node_modules' \
-            --exclude 'release' \
-            --exclude '.env' \
-            --exclude '.vipocket' \
-            --exclude 'logs'
-          cd release
-          zip -r -9 ViPocket-Xiaozhi-Windows-OneClick.zip ViPocket-Xiaozhi
+  windows-portable:
+    if: github.event_name != 'pull_request'
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Upload Windows one-click package
-        if: github.event_name == 'push'
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install and build
+        shell: pwsh
+        run: |
+          npm install --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm prune --omit=dev --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Assemble portable Windows folder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $PWD 'release\ViPocket-Xiaozhi'
+          $releaseRoot = Join-Path $PWD 'release'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          $robocopyArgs = @(
+            '.', $stage, '/E',
+            '/XD', '.git', '.github', 'node_modules', 'release', '.vipocket', 'logs',
+            '/XF', '.env', '*.log'
+          )
+          & robocopy @robocopyArgs | Out-Host
+          if ($LASTEXITCODE -gt 7) { throw "robocopy source failed: $LASTEXITCODE" }
+
+          Copy-Item -LiteralPath (Join-Path $PWD 'node_modules') -Destination (Join-Path $stage 'node_modules') -Recurse -Force
+
+          $nodeVersion = (& node -p 'process.versions.node').Trim()
+          $nodeZip = "node-v$nodeVersion-win-x64.zip"
+          $nodeUrl = "https://nodejs.org/dist/v$nodeVersion/$nodeZip"
+          $nodeZipPath = Join-Path $releaseRoot $nodeZip
+          $nodeExtract = Join-Path $releaseRoot 'node-extract'
+          Invoke-WebRequest -UseBasicParsing -Uri $nodeUrl -OutFile $nodeZipPath
+          Expand-Archive -LiteralPath $nodeZipPath -DestinationPath $nodeExtract -Force
+          $runtimeFolder = Get-ChildItem -LiteralPath $nodeExtract -Directory | Select-Object -First 1
+          if (-not $runtimeFolder) { throw 'Node runtime folder was not found.' }
+          Move-Item -LiteralPath $runtimeFolder.FullName -Destination (Join-Path $stage 'runtime')
+
+          @"
+          ViPocket-Xiaozhi Windows Portable 2.1.0
+          Built: $(Get-Date -Format o)
+          Commit: $env:GITHUB_SHA
+          Node.js: $nodeVersion
+
+          Double-click START-VIPOCKET.cmd.
+          No Git, Node.js installation or npm install is required.
+          "@ | Set-Content -LiteralPath (Join-Path $stage 'PORTABLE-BUILD.txt') -Encoding UTF8
+
+          $zipPath = Join-Path $releaseRoot 'ViPocket-Xiaozhi-Windows-x64.zip'
+          Compress-Archive -Path $stage -DestinationPath $zipPath -CompressionLevel Optimal -Force
+          if (-not (Test-Path $zipPath)) { throw 'Portable ZIP was not created.' }
+
+      - name: Upload Windows portable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: ViPocket-Xiaozhi-Windows-OneClick
-          path: release/ViPocket-Xiaozhi-Windows-OneClick.zip
+          name: ViPocket-Xiaozhi-Windows-x64
+          path: release/ViPocket-Xiaozhi-Windows-x64.zip
           if-no-files-found: error
           retention-days: 30
+          compression-level: 0
+
+      - name: Publish tagged GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/ViPocket-Xiaozhi-Windows-x64.zip

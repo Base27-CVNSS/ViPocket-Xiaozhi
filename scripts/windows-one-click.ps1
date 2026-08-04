@@ -7,10 +7,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
+$Version = '2.2.1'
 $Root = Split-Path -Parent $PSScriptRoot
 $StateDir = Join-Path $Root '.vipocket'
 $LogDir = Join-Path $Root 'logs'
 $LogFile = Join-Path $LogDir 'vipocket.log'
+$ErrorLog = Join-Path $LogDir 'vipocket-error.log'
 $PidFile = Join-Path $StateDir 'server.pid'
 $BundledRuntime = Join-Path $Root 'runtime'
 $DownloadedRuntime = Join-Path $StateDir 'runtime'
@@ -165,6 +167,20 @@ function Test-Website {
   }
 }
 
+function Get-StartupLogTail {
+  $parts = @()
+  if (Test-Path $LogFile) {
+    $parts += '--- vipocket.log ---'
+    $parts += (Get-Content $LogFile -Tail 80)
+  }
+  if (Test-Path $ErrorLog) {
+    $parts += '--- vipocket-error.log ---'
+    $parts += (Get-Content $ErrorLog -Tail 80)
+  }
+  if ($parts.Count -eq 0) { return 'Khong co log khoi dong.' }
+  return ($parts -join [Environment]::NewLine)
+}
+
 function Stop-TrackedProcess {
   if (-not (Test-Path $PidFile)) { return }
   $savedPid = (Get-Content $PidFile -Raw).Trim()
@@ -186,31 +202,43 @@ function Start-App {
   }
 
   Stop-TrackedProcess
-  Set-Content $LogFile "ViPocket startup: $(Get-Date -Format o)" -Encoding UTF8
+  Remove-Item $LogFile, $ErrorLog -Force -ErrorAction SilentlyContinue
   Write-Step 'Dang khoi dong website va gateway tren cung cong 8787...'
-  $command = '"{0}" "{1}" 1>>"{2}" 2>&1' -f $Runtime.Node, $ServerEntry, $LogFile
-  $process = Start-Process cmd.exe -ArgumentList @('/d', '/c', $command) -WorkingDirectory $Root -WindowStyle Hidden -PassThru
+
+  # Start Node directly. The previous cmd.exe /c wrapper could exit immediately
+  # when node.exe was installed under a path containing spaces such as
+  # C:\Program Files\nodejs, leaving an empty log and ERR_CONNECTION_REFUSED.
+  $quotedEntry = '"{0}"' -f $ServerEntry
+  $process = Start-Process \
+    -FilePath $Runtime.Node \
+    -ArgumentList $quotedEntry \
+    -WorkingDirectory $Root \
+    -WindowStyle Hidden \
+    -RedirectStandardOutput $LogFile \
+    -RedirectStandardError $ErrorLog \
+    -PassThru
+
   Set-Content $PidFile $process.Id -Encoding ASCII
 
   $deadline = (Get-Date).AddSeconds(120)
   do {
     Start-Sleep -Seconds 1
+    $process.Refresh()
     if ($process.HasExited) {
-      $tail = if (Test-Path $LogFile) { (Get-Content $LogFile -Tail 60) -join [Environment]::NewLine } else { 'Khong co log.' }
-      throw "ViPocket da dung som.`n`n$tail"
+      Start-Sleep -Milliseconds 300
+      throw "ViPocket da dung som (exit code $($process.ExitCode)).`n`n$(Get-StartupLogTail)"
     }
   } until ((Test-Website) -or (Get-Date) -ge $deadline)
 
   if (-not (Test-Website)) {
-    $tail = if (Test-Path $LogFile) { (Get-Content $LogFile -Tail 60) -join [Environment]::NewLine } else { 'Khong co log.' }
-    throw "Qua thoi gian cho ViPocket.`n`n$tail"
+    throw "Qua thoi gian cho ViPocket.`n`n$(Get-StartupLogTail)"
   }
   Write-Ok "Website va gateway: $WebsiteUrl"
 }
 
 try {
   Write-Host '============================================================' -ForegroundColor DarkCyan
-  Write-Host ' ViPocket-Xiaozhi 2.2 - WINDOWS ONE CLICK' -ForegroundColor Cyan
+  Write-Host " ViPocket-Xiaozhi $Version - WINDOWS ONE CLICK" -ForegroundColor Cyan
   Write-Host '============================================================' -ForegroundColor DarkCyan
 
   Ensure-Environment
@@ -233,6 +261,7 @@ try {
 } catch {
   Write-Host ''
   Write-Host ('[LOI] ' + $_.Exception.Message) -ForegroundColor Red
-  Write-Host "Nhat ky: $LogFile" -ForegroundColor Yellow
+  Write-Host "Nhat ky thuong: $LogFile" -ForegroundColor Yellow
+  Write-Host "Nhat ky loi:    $ErrorLog" -ForegroundColor Yellow
   exit 1
 }

@@ -1,0 +1,20 @@
+{
+  "name": "ViPocket Xiaozhi",
+  "short_name": "ViPocket",
+  "description": "Client thoại Xiaozhi local-first với kích hoạt OTP thật và gateway cục bộ bảo vệ token.",
+  "lang": "vi",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#08111f",
+  "theme_color": "#14233f",
+  "categories": ["utilities", "lifestyle", "productivity"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

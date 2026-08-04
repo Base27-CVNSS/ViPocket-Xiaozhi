@@ -2,8 +2,7 @@ const OTP_PATTERN = /^\d{6}$/;
 const expiryBySession = new Map();
 
 export function normalizeOtp(value) {
-  const digits = String(value ?? '').replace(/\D/g, '');
-  return digits.slice(0, 6);
+  return String(value ?? '').replace(/\D/g, '');
 }
 
 export function isValidOtp(value) {
@@ -12,8 +11,8 @@ export function isValidOtp(value) {
 
 export function formatOtp(value) {
   const otp = normalizeOtp(value);
-  if (!otp) return '——— ———';
-  return otp.length > 3 ? `${otp.slice(0, 3)} ${otp.slice(3)}` : otp;
+  if (!OTP_PATTERN.test(otp)) return '——— ———';
+  return `${otp.slice(0, 3)} ${otp.slice(3)}`;
 }
 
 export function activationExpiry(session, now = Date.now()) {

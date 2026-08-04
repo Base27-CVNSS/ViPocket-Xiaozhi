@@ -1,9 +1,31 @@
-# Strict six-digit OTP verification
+# Strict six-digit OTP verification — passed
 
-The complete CI pipeline must verify the current production implementation:
+## Scope
 
-- only an exact six-digit OTP is accepted;
-- overlong, short, and malformed codes are rejected without truncation;
-- polling cannot extend the original OTP expiry;
-- production Web/PWA build and local gateway smoke test pass;
-- the exact assembled Windows one-click launcher passes its smoke test.
+The production implementation accepts only an exact six-digit device-pairing OTP. Short, overlong, alphabetic, and malformed values are rejected without truncation. Polling preserves the original expiry instant and cannot renew the code implicitly.
+
+## GitHub Actions result
+
+Workflow run `30883191656` completed successfully.
+
+### Verify application — passed
+
+- dependency installation;
+- JavaScript syntax checks;
+- gateway and OTP unit tests;
+- Vite production build;
+- website and zero-configuration gateway smoke test.
+
+### Package Windows x64 — passed
+
+- PowerShell syntax validation;
+- dependency installation, tests, and production build;
+- self-contained Windows package assembly;
+- execution of the exact packaged one-click launcher;
+- website and gateway smoke checks;
+- ZIP creation;
+- workflow artifact upload.
+
+## Merge record
+
+Pull request `#8` was merged into `main` as commit `ae2b0256333163e119bb263387af6a341d29a718` after both jobs passed.

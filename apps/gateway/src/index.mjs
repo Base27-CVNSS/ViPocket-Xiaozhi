@@ -6,7 +6,7 @@ import { config } from './config.mjs';
 import { SessionStore } from './session-store.mjs';
 import { ActivationService } from './activation-service.mjs';
 
-const VERSION = '2.2.0';
+const VERSION = '2.3.0';
 const store = new SessionStore(config);
 const activationService = new ActivationService(config);
 const websocketServer = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024, perMessageDeflate: false });

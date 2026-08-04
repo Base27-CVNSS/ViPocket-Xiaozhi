@@ -19,15 +19,25 @@ test('normalizes and formats only a six-digit OTP', () => {
 });
 
 test('stores a fixed OTP expiry instead of extending it during polling', () => {
-  const session = withOtpExpiry({
+  const issued = withOtpExpiry({
     id: 'session-1',
     code: '123456',
+    createdAt: 1_000,
     updatedAt: 1_000,
     timeoutMs: 300_000
   }, 1_000);
 
-  assert.equal(session.otpExpiresAt, 301_000);
-  assert.equal(activationExpiry(session, 20_000), 301_000);
-  assert.equal(remainingOtpSeconds(session, 300_500), 1);
-  assert.equal(isOtpExpired(session, 301_000), true);
+  const polled = withOtpExpiry({
+    id: 'session-1',
+    code: '123456',
+    createdAt: 1_000,
+    updatedAt: 120_000,
+    timeoutMs: 300_000
+  }, 120_000);
+
+  assert.equal(issued.otpExpiresAt, 301_000);
+  assert.equal(polled.otpExpiresAt, 301_000);
+  assert.equal(activationExpiry(polled, 200_000), 301_000);
+  assert.equal(remainingOtpSeconds(polled, 300_500), 1);
+  assert.equal(isOtpExpired(polled, 301_000), true);
 });

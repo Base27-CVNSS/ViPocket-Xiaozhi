@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title ViPocket-Xiaozhi 2.2.1 - One Click
+title ViPocket-Xiaozhi 2.3.0 - One Click
 
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\windows-one-click.ps1"
 set "EXIT_CODE=%ERRORLEVEL%"

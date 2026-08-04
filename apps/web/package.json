@@ -1,14 +1,7 @@
 {
   "name": "@vipocket/web",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
-  "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1"
-  },
-  "devDependencies": {
-    "vite": "6.3.5"
-  }
+  "description": "Static ES-module web client served directly by the standalone Node.js process."
 }

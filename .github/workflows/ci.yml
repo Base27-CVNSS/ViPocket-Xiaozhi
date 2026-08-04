@@ -3,10 +3,12 @@ name: Build Windows Portable
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: vipocket-windows-${{ github.ref }}
@@ -16,6 +18,7 @@ jobs:
   verify:
     name: Verify application
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,6 +49,7 @@ jobs:
       - name: Smoke-test website and gateway
         shell: bash
         run: |
+          set -euo pipefail
           cp .env.example .env
           node apps/gateway/src/index.mjs > /tmp/vipocket.log 2>&1 &
           APP_PID=$!
@@ -86,6 +90,9 @@ jobs:
     name: Package Windows x64
     needs: verify
     runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -215,6 +222,7 @@ jobs:
           compression-level: 0
 
       - name: Publish stable one-click release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

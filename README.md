@@ -1,13 +1,13 @@
 <div align="center">
 
-# 🇻🇳 ViPocket-Xiaozhi 2.1
+# 🇻🇳 ViPocket-Xiaozhi 2.2
 
-### Tải về Windows, giải nén, nhấp đúp và chạy ngay
+### Một tiến trình · Một cổng · Tải về Windows và chạy ngay
 
 [![Windows Portable](https://img.shields.io/badge/Windows-Portable-2d67f6?style=for-the-badge&logo=windows11)](../../actions)
-[![Version](https://img.shields.io/badge/version-2.1.0-45d9ff?style=for-the-badge)](./package.json)
-[![License](https://img.shields.io/badge/license-MIT-4ad295?style=for-the-badge)](./LICENSE)
-[![Protocol](https://img.shields.io/badge/Xiaozhi-WebSocket%20v1-8f6cff?style=for-the-badge)](./docs/PROTOCOL.md)
+[![Version](https://img.shields.io/badge/version-2.2.0-45d9ff?style=for-the-badge)](./package.json)
+[![Runtime](https://img.shields.io/badge/runtime-Node.js%20%2B%20ws-4ad295?style=for-the-badge)](./package.json)
+[![License](https://img.shields.io/badge/license-MIT-8f6cff?style=for-the-badge)](./LICENSE)
 
 **[Tiếng Việt](./README.md) · [English](./README.en.md)**
 
@@ -15,130 +15,162 @@
 
 ---
 
-## ⚡ Cách dùng nhanh nhất trên Windows
+## ⚡ Chạy trên Windows
 
-Bản **Windows Portable** được CI đóng gói sẵn với:
-
-- Node.js portable.
-- Dependency runtime của gateway.
-- Giao diện web đã build production.
-- Launcher, lệnh dừng và lệnh sửa lỗi.
-
-Người dùng không cần cài Git, không cần cài Node.js và không cần tự chạy `npm install`.
+Bản artifact Windows được đóng gói sẵn với Node.js portable, dependency `ws`, giao diện web và gateway.
 
 ```text
-1. Tải artifact ViPocket-Xiaozhi-Windows-x64.zip trong GitHub Actions.
-2. Giải nén toàn bộ ZIP.
-3. Nhấp đúp START-VIPOCKET.cmd.
-4. Chờ launcher mở http://127.0.0.1:5173.
+1. Mở GitHub Actions → CI and Windows Portable.
+2. Chọn lần chạy mới nhất có dấu xanh.
+3. Tải artifact ViPocket-Xiaozhi-Windows-x64.
+4. Giải nén toàn bộ ZIP.
+5. Nhấp đúp START-VIPOCKET.cmd.
 ```
 
-Các lệnh Windows:
+Trình duyệt chỉ được mở sau khi health check thành công:
 
 ```text
-START-VIPOCKET.cmd       Khởi động website và gateway
-STOP-VIPOCKET.cmd        Dừng toàn bộ cây tiến trình
-REPAIR-VIPOCKET.cmd      Cài/build lại khi bản nguồn bị lỗi
-CONFIGURE-XIAOZHI.cmd    Mở cấu hình kết nối Xiaozhi thật
+Website + API + WebSocket gateway:
+http://127.0.0.1:5173
+
+Health API:
+http://127.0.0.1:5173/health
 ```
 
-Địa chỉ hệ thống:
+Không cần:
+
+- Git.
+- Cài Node.js.
+- Gõ `npm install`.
+- Chạy Vite.
+- Mở đồng thời hai terminal hoặc hai cổng.
+
+### Các tệp điều khiển Windows
 
 ```text
-Website:         http://127.0.0.1:5173
-Gateway health:  http://127.0.0.1:8787/health
+START-VIPOCKET.cmd       Khởi động hệ thống
+STOP-VIPOCKET.cmd        Dừng đúng tiến trình ViPocket
+REPAIR-VIPOCKET.cmd      Cài lại dependency khi dùng source ZIP
+CONFIGURE-XIAOZHI.cmd    Mở .env để cấu hình upstream
 ```
-
-> Cổng `8787` là API gateway, không phải trang giao diện. Launcher chỉ mở trình duyệt sau khi cả website và gateway đã vượt qua kiểm tra sức khỏe.
 
 ---
 
 ## ViPocket-Xiaozhi là gì?
 
-ViPocket-Xiaozhi là một client thoại Xiaozhi chạy trong Edge/Chrome, đi kèm gateway cục bộ để bảo vệ token và thêm các header WebSocket mà trình duyệt không thể tự đặt.
+ViPocket-Xiaozhi biến Edge/Chrome thành một thiết bị thoại tương thích giao thức Xiaozhi. Trình duyệt phụ trách giao diện và âm thanh; tiến trình Node.js cục bộ phụ trách:
+
+- Phục vụ website.
+- Gọi OTA/activation API.
+- Giữ token ngoài JavaScript phía trình duyệt.
+- Cấp ticket WebSocket dùng một lần.
+- Mở WebSocket upstream với `Authorization`, `Protocol-Version`, `Device-Id`, `Client-Id`.
+- Chuyển tiếp JSON và binary Opus hai chiều.
 
 ```mermaid
 flowchart LR
-    MIC[Microphone] --> AW[AudioWorklet\n16 kHz mono]
-    AW --> OPUS[WebCodecs Opus]
-    OPUS --> WEB[Web Client\n127.0.0.1:5173]
-    WEB <--> GW[Security Gateway\n127.0.0.1:8787]
-    GW <--> OTA[OTA / Activation]
-    GW <--> WS[Xiaozhi WebSocket]
-    WS --> OPUS2[Opus Decoder]
-    OPUS2 --> SPK[Speaker]
+    MIC[Microphone] --> AW[AudioWorklet]
+    AW --> ENC[WebCodecs Opus Encoder]
+    ENC --> B[Browser UI]
+    B <--> S[Standalone Node Server\n127.0.0.1:5173]
+    S <--> OTA[OTA / Activation]
+    S <--> WS[Xiaozhi WebSocket]
+    WS --> DEC[WebCodecs Opus Decoder]
+    DEC --> SPK[Speaker]
 ```
 
-### Mức hoàn thiện mục tiêu
+---
 
-| Thành phần | Mức | Nội dung |
-|---|---:|---|
-| Prototype UI | **8/10** | Responsive, Việt–Anh, wizard ba bước, transcript và chẩn đoán |
-| Kết nối Xiaozhi | **8/10** | OTA activation, Device-Id, Client-Id, token phía gateway và WebSocket proxy |
-| Client thoại | **8/10** | AudioWorklet, WebCodecs Opus, PTT, STT/LLM/TTS và ngắt lời |
-| Trải nghiệm Windows | **9/10** | Runtime đóng gói sẵn, health check, tự mở trình duyệt, stop/repair/configure |
+## Vì sao phiên bản 2.2 ổn định hơn?
+
+Phiên bản cũ có hai dịch vụ độc lập:
+
+```text
+Vite web :5173
+Fastify gateway :8787
+```
+
+Điều đó tạo nhiều điểm lỗi:
+
+- Một dịch vụ chạy nhưng dịch vụ còn lại chưa chạy.
+- Người dùng mở nhầm cổng `8787`.
+- CORS giữa hai origin.
+- Hai tiến trình và hai health check.
+- Vite/Fastify/plugin làm tăng dependency và rủi ro CI.
+- Artifact có thể thiếu `dist`, runtime hoặc `node_modules`.
+
+Phiên bản 2.2 thay bằng:
+
+```text
+Node.js standalone :5173
+├─ Static web
+├─ REST activation API
+├─ Health API
+└─ WebSocket proxy
+```
+
+Runtime production chỉ còn dependency trực tiếp:
+
+```json
+{
+  "ws": "8.18.2"
+}
+```
+
+Không còn phụ thuộc runtime vào Fastify, Zod, dotenv hoặc Vite.
 
 ---
 
-## Nâng cấp quan trọng trong 2.1
+## Luồng khởi động Windows
 
-### 1. Windows Portable thật
+```mermaid
+sequenceDiagram
+    participant U as Người dùng
+    participant L as Launcher
+    participant N as Node portable
+    participant S as Standalone server
+    participant B as Browser
 
-Workflow Windows tạo ZIP chứa sẵn `runtime/`, `node_modules/` và `apps/web/dist/`. Bản đóng gói không chạy Vite development server và không cần tải dependency ở lần mở đầu tiên.
+    U->>L: Nhấp START-VIPOCKET.cmd
+    L->>L: Tạo .env nếu chưa có
+    L->>N: Kiểm tra runtime đóng gói
+    L->>L: Kiểm tra node_modules/ws
+    L->>S: Chạy standalone.mjs
+    L->>S: GET /health
+    S-->>L: ok=true
+    L->>B: Mở http://127.0.0.1:5173
+```
 
-### 2. Production runner
+Launcher ưu tiên theo thứ tự:
 
-`scripts/portable-runner.mjs` thực hiện hai nhiệm vụ:
+1. `runtime/node.exe` trong artifact.
+2. Runtime portable đã tải trước đó.
+3. Node.js hệ thống từ 20.11 trở lên.
+4. Tự tải Node.js LTS portable từ nodejs.org khi chạy source ZIP.
 
-- Phục vụ web production tại cổng `5173` bằng Node.js HTTP server nhẹ.
-- Khởi động gateway như tiến trình con tại cổng `8787`.
-
-Runner hỗ trợ:
-
-- MIME `application/wasm`.
-- SPA fallback.
-- Chặn path traversal.
-- Cache dài cho asset có hash.
-- `no-store` cho `index.html`.
-- Dừng đồng bộ gateway khi runner bị tắt.
-
-### 3. Launcher tự phục hồi
-
-`START-VIPOCKET.cmd` và PowerShell launcher:
-
-- Ưu tiên Node runtime đã đóng gói.
-- Dùng Node hệ thống khi phù hợp.
-- Tự tải Node LTS portable khi chạy bản source ZIP và máy chưa có Node.
-- Chỉ chạy `npm install`/build nếu thiếu dependency hoặc web production.
-- Phát hiện xung đột cổng.
-- Ghi nhật ký vào `logs/vipocket.log`.
-- Lưu PID và dừng toàn bộ cây tiến trình bằng `STOP-VIPOCKET.cmd`.
-
-### 4. Không tạo mã kích hoạt giả
-
-ViPocket chỉ hiển thị mã từ `activation.code` do endpoint OTA/Xiaozhi trả về. Không còn sinh số ngẫu nhiên rồi yêu cầu người dùng nhập vào Console.
+Bản artifact chuẩn không cần bước tải hoặc cài đặt nào ở lần chạy đầu.
 
 ---
 
-## Kết nối Xiaozhi thật
+## Kích hoạt Xiaozhi thật
 
-Website local có thể khởi động ngay sau khi tải về. Để liên kết với máy chủ Xiaozhi thật, cần endpoint/token mà người triển khai có quyền sử dụng.
+Website local chạy được ngay cả khi chưa có upstream. Để nhận mã activation thật và trò chuyện, cần endpoint hoặc token hợp lệ mà người dùng có quyền sử dụng.
 
-Nhấp đúp:
+Mở:
 
 ```text
 CONFIGURE-XIAOZHI.cmd
 ```
 
-Sau đó cấu hình một trong hai chế độ.
-
-### Chế độ A — OTA activation
+### Chế độ OTA động
 
 ```dotenv
+HOST=127.0.0.1
+PORT=5173
 XIAOZHI_OTA_URL=https://your-server.example/ota/
 ```
 
-Endpoint ban đầu trả mã kích hoạt:
+Endpoint OTA có thể trả:
 
 ```json
 {
@@ -150,7 +182,7 @@ Endpoint ban đầu trả mã kích hoạt:
 }
 ```
 
-Sau khi liên kết thành công, endpoint trả cấu hình WebSocket:
+Sau khi liên kết:
 
 ```json
 {
@@ -162,61 +194,95 @@ Sau khi liên kết thành công, endpoint trả cấu hình WebSocket:
 }
 ```
 
-### Chế độ B — WebSocket cố định
+### Chế độ WebSocket cố định
 
 ```dotenv
+HOST=127.0.0.1
+PORT=5173
 XIAOZHI_WS_URL=wss://your-server.example/xiaozhi/v1/
-XIAOZHI_ACCESS_TOKEN=replace-with-server-side-token
+XIAOZHI_ACCESS_TOKEN=replace-with-authorized-token
 ```
 
-Sau khi lưu `.env`:
+Sau khi sửa `.env`:
 
 ```text
-1. Chạy STOP-VIPOCKET.cmd
-2. Chạy lại START-VIPOCKET.cmd
+STOP-VIPOCKET.cmd
+START-VIPOCKET.cmd
 ```
 
-Không commit `.env` hoặc token thật lên GitHub.
+> ViPocket không tự sinh mã xác minh giả và không nhúng token công khai vào mã frontend.
 
 ---
 
-## Quy trình hội thoại
+## Giao thức thoại
 
-```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant G as Gateway
-    participant X as Xiaozhi
+### Browser → server
 
-    B->>G: Request activation / ticket
-    G->>X: OTA request with Device-Id + Client-Id
-    X-->>G: activation code or WebSocket config
-    G-->>B: Safe public activation state
-    B->>G: WebSocket with one-time ticket
-    G->>X: WebSocket + Authorization headers
-    B->>X: hello
-    X-->>B: hello + session_id
-    B->>X: listen/start
-    B->>X: Binary Opus frames
-    B->>X: listen/stop
-    X-->>B: stt / llm / tts
-    X-->>B: Binary Opus audio
-```
+- `hello`
+- `listen/start`
+- Binary Opus 16 kHz mono, frame 60 ms
+- `listen/stop`
+- `abort`
 
-Gateway không trả token upstream xuống trình duyệt. Browser chỉ nhận ticket ngắn hạn dùng một lần.
+### Server → browser
+
+- `hello` và `session_id`
+- `stt`
+- `llm`
+- `tts/start`
+- `tts/sentence_start`
+- Binary Opus
+- `tts/stop`
+- `alert`
+- `mcp`
+
+Browser sử dụng:
+
+- `getUserMedia()`.
+- Echo cancellation.
+- Noise suppression.
+- Auto gain control.
+- `AudioWorklet`.
+- WebCodecs `AudioEncoder` và `AudioDecoder`.
+- Push-to-talk và barge-in.
 
 ---
 
-## API gateway
+## API cục bộ
 
 | Phương thức | Endpoint | Chức năng |
 |---|---|---|
-| `GET` | `/health` | Kiểm tra gateway và trạng thái cấu hình |
+| `GET` | `/health` | Kiểm tra standalone server |
 | `POST` | `/api/v1/activation` | Tạo phiên activation |
-| `GET` | `/api/v1/activation/:id` | Poll trạng thái liên kết |
+| `GET` | `/api/v1/activation/:id` | Poll trạng thái |
 | `POST` | `/api/v1/activation/:id/ticket` | Cấp ticket WebSocket một lần |
 | `DELETE` | `/api/v1/activation/:id` | Xóa phiên |
-| `WS` | `/ws/xiaozhi?ticket=...` | Proxy JSON/binary với upstream |
+| `WS` | `/ws/xiaozhi?ticket=...` | Proxy giao thức Xiaozhi |
+
+---
+
+## CI/CD
+
+Workflow thực hiện tuần tự:
+
+### Ubuntu verification
+
+1. Cài dependency production.
+2. Kiểm tra cú pháp Node.js.
+3. Chạy unit test.
+4. Khởi động standalone server.
+5. Kiểm tra `/`, `/health`, `/src/main.js`.
+
+### Windows portable
+
+1. Kiểm tra cú pháp PowerShell launcher.
+2. Chạy test trên Windows.
+3. Sao chép mã nguồn và dependency production.
+4. Tải Node.js x64 portable.
+5. Chạy chính thư mục đã đóng gói.
+6. Kiểm tra website và health API.
+7. Chỉ tạo ZIP khi smoke test đạt.
+8. Upload `ViPocket-Xiaozhi-Windows-x64.zip`.
 
 ---
 
@@ -225,54 +291,27 @@ Gateway không trả token upstream xuống trình duyệt. Browser chỉ nhận
 ```bash
 git clone https://github.com/Base27-CVNSS/ViPocket-Xiaozhi.git
 cd ViPocket-Xiaozhi
-npm install
-npm run build
+npm install --omit=dev
 npm start
 ```
 
-Chế độ phát triển có hot reload:
+Chế độ theo dõi thay đổi:
 
 ```bash
 npm run dev
 ```
 
-Kiểm thử:
+Kiểm tra:
 
 ```bash
-npm test
 npm run check
 ```
 
 ---
 
-## Cấu trúc dự án
-
-```text
-ViPocket-Xiaozhi/
-├─ apps/
-│  ├─ web/                    Web voice client
-│  └─ gateway/                Activation API + WebSocket proxy
-├─ scripts/
-│  ├─ portable-runner.mjs     Production runner
-│  ├─ windows-one-click.ps1   Windows launcher
-│  └─ windows-stop.ps1        Process-tree shutdown
-├─ docs/
-├─ runtime/                   Có trong Windows artifact
-├─ START-VIPOCKET.cmd
-├─ STOP-VIPOCKET.cmd
-├─ REPAIR-VIPOCKET.cmd
-├─ CONFIGURE-XIAOZHI.cmd
-├─ .env.example
-└─ package.json
-```
-
----
-
-## Xử lý lỗi Windows
+## Xử lý lỗi
 
 ### `ERR_CONNECTION_REFUSED`
-
-Website/gateway chưa chạy hoặc cổng bị chiếm:
 
 ```text
 STOP-VIPOCKET.cmd
@@ -285,52 +324,76 @@ Xem log:
 logs\vipocket.log
 ```
 
-### Gói source thiếu dependency
+### Cổng 5173 đang được sử dụng
+
+Đóng ứng dụng đang chiếm cổng hoặc chạy `STOP-VIPOCKET.cmd`. Launcher không tự ý dừng tiến trình không thuộc thư mục ViPocket.
+
+### Website mở nhưng không nhận mã activation
+
+Local server đã chạy, nhưng `.env` chưa có upstream hợp lệ. Chạy `CONFIGURE-XIAOZHI.cmd`.
+
+### Source ZIP thiếu dependency
 
 ```text
 REPAIR-VIPOCKET.cmd
 ```
 
-### Gateway chạy nhưng chưa kích hoạt được
-
-Mở:
-
-```text
-CONFIGURE-XIAOZHI.cmd
-```
-
-và điền endpoint/token hợp lệ. Launcher không thể tự tạo quyền truy cập Xiaozhi thay cho người dùng.
+Bản artifact Windows chuẩn đã chứa `node_modules/ws`, nên không cần repair.
 
 ---
 
 ## Bảo mật
 
-- Gateway mặc định chỉ bind `127.0.0.1`.
-- Token nằm trong `.env` và bộ nhớ gateway.
-- CORS dùng allowlist loopback.
-- Ticket WebSocket ngẫu nhiên, thời hạn ngắn và dùng một lần.
-- Log che các trường token/authorization.
-- Không mở gateway ra Internet khi chưa có đăng nhập và TLS.
+- Chỉ bind `127.0.0.1` theo mặc định.
+- Token không được trả về browser.
+- Ticket WebSocket ngẫu nhiên, ngắn hạn và dùng một lần.
+- Giới hạn kích thước request và WebSocket payload.
+- Rate limit cục bộ cho API.
+- Chặn path traversal khi phục vụ file.
+- MIME `application/wasm` được hỗ trợ.
+- `index.html` không cache; asset dùng cache ngắn có kiểm soát.
 
-Xem thêm:
+Không mở server ra Internet khi chưa có TLS, đăng nhập và phân quyền người dùng.
 
-- [Kiến trúc](./docs/ARCHITECTURE.md)
-- [Giao thức](./docs/PROTOCOL.md)
-- [Bảo mật](./docs/SECURITY.md)
-- [Triển khai](./docs/DEPLOYMENT.md)
+---
+
+## Cấu trúc chính
+
+```text
+ViPocket-Xiaozhi/
+├─ apps/
+│  ├─ web/
+│  │  ├─ index.html
+│  │  └─ src/
+│  └─ gateway/
+│     ├─ src/
+│     │  ├─ standalone.mjs
+│     │  ├─ activation-service.mjs
+│     │  └─ session-store.mjs
+│     └─ test/
+├─ scripts/
+│  ├─ windows-one-click.ps1
+│  └─ windows-stop.ps1
+├─ .github/workflows/ci.yml
+├─ START-VIPOCKET.cmd
+├─ STOP-VIPOCKET.cmd
+├─ REPAIR-VIPOCKET.cmd
+├─ CONFIGURE-XIAOZHI.cmd
+├─ .env.example
+└─ package.json
+```
 
 ---
 
 ## Giới hạn trung thực
 
-Bản Windows Portable bảo đảm **website và gateway local có thể khởi động mà không cần cài công cụ phát triển**. Việc kết nối thành công đến một máy chủ Xiaozhi cụ thể vẫn phụ thuộc vào:
+Bản Portable bảo đảm website và gateway local được khởi động và kiểm thử trước khi ZIP được xuất bản. Kết nối đến dịch vụ Xiaozhi cụ thể vẫn phụ thuộc vào:
 
-- Endpoint OTA/WebSocket hợp lệ.
+- Endpoint hợp lệ.
 - Token/quyền truy cập hợp lệ.
-- Chính sách của máy chủ upstream.
-- Trình duyệt hỗ trợ WebCodecs Opus và quyền micro.
-
-Dự án không nhúng token công khai và không giả lập pairing để tạo cảm giác kết nối thành công.
+- Chính sách upstream.
+- WebCodecs Opus trên trình duyệt.
+- Quyền microphone.
 
 ---
 
@@ -338,4 +401,4 @@ Dự án không nhúng token công khai và không giả lập pairing để t�
 
 Mã nguồn ViPocket-Xiaozhi được phát hành theo [MIT License](./LICENSE).
 
-Dự án độc lập, tham chiếu giao thức của [`78/xiaozhi-esp32`](https://github.com/78/xiaozhi-esp32), không đại diện và không thuộc `xiaozhi.me` hay tác giả upstream.
+Dự án độc lập, tham chiếu giao thức từ [`78/xiaozhi-esp32`](https://github.com/78/xiaozhi-esp32), không thuộc và không đại diện cho `xiaozhi.me` hay tác giả upstream.

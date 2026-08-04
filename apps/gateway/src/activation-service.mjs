@@ -1,4 +1,4 @@
-const USER_AGENT = 'ViPocket-Xiaozhi/2.0 (Web Companion)';
+const USER_AGENT = 'ViPocket-Xiaozhi/2.2 (Web Companion)';
 
 function normalizeToken(value = '') {
   return value.replace(/^Bearer\s+/i, '').trim();

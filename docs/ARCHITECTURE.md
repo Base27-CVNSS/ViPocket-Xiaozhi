@@ -1,8 +1,16 @@
 # Kiến trúc / Architecture
 
-## 1. Mục tiêu thiết kế
+## 1. Nguyên tắc thiết kế
 
-ViPocket tách trình duyệt khỏi bí mật upstream. Browser chịu trách nhiệm UI và media. Gateway chịu trách nhiệm định danh thiết bị, activation, token và WebSocket handshake headers.
+ViPocket 2.2 tách bí mật upstream khỏi trình duyệt nhưng **không tách website và gateway thành hai dịch vụ**. Một tiến trình Node.js tại `127.0.0.1:5173` phục vụ đồng thời:
+
+- HTML, CSS và ES modules của web client.
+- REST API activation.
+- Health API.
+- WebSocket proxy Xiaozhi.
+- Bộ nhớ session và ticket ngắn hạn.
+
+Điều này loại bỏ CORS nội bộ, cổng `8787`, Vite runtime và việc phối hợp hai tiến trình.
 
 ## 2. Các lớp chính
 
@@ -18,10 +26,12 @@ flowchart TB
     AUDIO <--> PROTO
   end
 
-  subgraph Gateway
+  subgraph Standalone[Standalone Node.js :5173]
+    STATIC[Static ES-module server]
     HTTP[Activation REST API]
-    STORE[Ephemeral Session & Ticket Store]
+    STORE[Ephemeral Session and Ticket Store]
     PROXY[Authenticated WebSocket Proxy]
+    STATIC --- HTTP
     HTTP <--> STORE
     STORE <--> PROXY
   end
@@ -33,78 +43,113 @@ flowchart TB
     CONSOLE --> OTA
   end
 
+  Browser <--> STATIC
   Browser <--> HTTP
   Browser <--> PROXY
   HTTP <--> OTA
   PROXY <--> WS
 ```
 
-## 3. Activation sequence
+## 3. Khởi động Windows
 
 ```mermaid
 sequenceDiagram
+  participant U as User
+  participant L as START-VIPOCKET
+  participant N as Portable Node.js
+  participant S as Standalone server
   participant B as Browser
-  participant G as Gateway
-  participant O as OTA Endpoint
-  participant C as Xiaozhi Console
 
-  B->>G: POST /api/v1/activation
-  G->>O: POST + Activation-Version/Device-Id/Client-Id
-  O-->>G: activation.code
-  G-->>B: code + session id
-  B-->>C: User enters code
-  loop Poll
-    B->>G: GET /api/v1/activation/:id
-    G->>O: Repeat OTA check
-    O-->>G: activation or websocket config
-  end
-  G-->>B: status=activated
+  U->>L: Double-click
+  L->>L: Create .env when missing
+  L->>N: Select bundled runtime
+  L->>L: Verify node_modules/ws
+  L->>S: Run standalone.mjs
+  L->>S: GET /health
+  S-->>L: ok=true
+  L->>B: Open http://127.0.0.1:5173
 ```
 
-## 4. Voice sequence
+## 4. Activation sequence
 
 ```mermaid
 sequenceDiagram
   participant B as Browser
-  participant G as Gateway
+  participant S as Standalone server
+  participant O as OTA endpoint
+  participant C as Xiaozhi Console
+
+  B->>S: POST /api/v1/activation
+  S->>O: POST + Activation-Version/Device-Id/Client-Id
+  O-->>S: activation.code
+  S-->>B: Public code + local session id
+  B-->>C: User enters code
+  loop Poll
+    B->>S: GET /api/v1/activation/:id
+    S->>O: Repeat OTA check
+    O-->>S: activation or websocket config
+  end
+  S-->>B: status=activated
+```
+
+## 5. Voice sequence
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant S as Standalone server
   participant X as Xiaozhi
 
-  B->>G: Request one-time ticket
-  G-->>B: ticket (short TTL)
-  B->>G: WS /ws/xiaozhi?ticket=...
-  G->>X: WS + Authorization/Device-Id/Client-Id
-  B->>X: hello (proxied)
+  B->>S: Request one-time ticket
+  S-->>B: Short-lived ticket
+  B->>S: WS /ws/xiaozhi?ticket=...
+  S->>X: WS + Authorization/Device-Id/Client-Id
+  B->>X: hello, proxied
   X-->>B: hello + session_id
   B->>X: listen/start
-  loop 60 ms
-    B->>X: Binary Opus frame
+  loop Every 60 ms
+    B->>X: Binary Opus packet
   end
   B->>X: listen/stop
   X-->>B: stt / llm / tts JSON
   X-->>B: Binary Opus audio
 ```
 
-## 5. Trách nhiệm từng thành phần
+## 6. Trách nhiệm
 
 ### Browser
 
-- Không lưu access token.
-- Sinh và giữ định danh browser device.
-- Kiểm tra khả năng Secure Context, AudioWorklet và WebCodecs Opus.
-- Encode/decode audio.
-- Chuyển đổi message protocol thành trạng thái UI.
+- Không nhận hoặc lưu upstream access token.
+- Giữ `Device-Id` và `Client-Id` ổn định trong local storage.
+- Thu microphone bằng `getUserMedia` và AudioWorklet.
+- Mã hóa/giải mã Opus bằng WebCodecs.
+- Hiển thị STT, trạng thái TTS, cảm xúc và chẩn đoán.
+- Gửi `abort` khi barge-in.
 
-### Gateway
+### Standalone server
 
+- Phục vụ web cùng origin.
+- Đọc `.env` mà không cần thư viện dotenv.
 - Gọi OTA bằng header thiết bị.
 - Không trả upstream token về browser.
-- Cấp ticket WebSocket dùng một lần.
+- Cấp ticket WebSocket ngẫu nhiên, ngắn hạn, dùng một lần.
 - Mở upstream WebSocket với header tùy chỉnh.
 - Chuyển tiếp text/binary không biến đổi.
+- Giới hạn body, WebSocket payload và tần suất API.
 
 ### Upstream
 
-- Cấp activation code.
-- Gắn thiết bị với tài khoản/agent.
+- Cấp activation code thật.
+- Liên kết thiết bị với tài khoản hoặc agent.
 - Cấp WebSocket URL/token.
-- Thực hiện ASR, LLM, TTS và MCP tùy cấu hình server.
+- Thực hiện ASR, LLM, TTS và MCP theo cấu hình máy chủ.
+
+## 7. Trạng thái được giữ trong RAM
+
+`SessionStore` hiện là bộ nhớ tiến trình:
+
+- Restart làm mất activation session và ticket.
+- Ticket bị xóa ngay sau lần sử dụng đầu tiên.
+- Session tự hết hạn.
+
+Khi scale nhiều instance, cần Redis hoặc kho dữ liệu chia sẻ có thao tác consume-ticket nguyên tử.

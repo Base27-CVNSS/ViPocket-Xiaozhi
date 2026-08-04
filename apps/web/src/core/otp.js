@@ -1,4 +1,5 @@
 const OTP_PATTERN = /^\d{6}$/;
+const expiryBySession = new Map();
 
 export function normalizeOtp(value) {
   const digits = String(value ?? '').replace(/\D/g, '');
@@ -18,10 +19,14 @@ export function formatOtp(value) {
 export function activationExpiry(session, now = Date.now()) {
   const stored = Number(session?.otpExpiresAt || 0);
   if (Number.isFinite(stored) && stored > 0) return stored;
+
+  const cached = session?.id ? Number(expiryBySession.get(session.id) || 0) : 0;
+  if (Number.isFinite(cached) && cached > 0) return cached;
+
   const timeoutMs = Number(session?.timeoutMs || 0);
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return 0;
-  const updatedAt = Number(session?.updatedAt || session?.createdAt || now);
-  return updatedAt + timeoutMs;
+  const issuedAt = Number(session?.createdAt || session?.updatedAt || now);
+  return issuedAt + timeoutMs;
 }
 
 export function remainingOtpSeconds(session, now = Date.now()) {
@@ -38,5 +43,10 @@ export function isOtpExpired(session, now = Date.now()) {
 export function withOtpExpiry(session, now = Date.now()) {
   if (!session || typeof session !== 'object') return session;
   const expiresAt = activationExpiry(session, now);
+  if (session.id && expiresAt) expiryBySession.set(session.id, expiresAt);
   return expiresAt ? { ...session, otpExpiresAt: expiresAt } : { ...session };
+}
+
+export function forgetOtpExpiry(sessionId) {
+  if (sessionId) expiryBySession.delete(sessionId);
 }

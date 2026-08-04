@@ -205,19 +205,19 @@ function Start-App {
   Remove-Item $LogFile, $ErrorLog -Force -ErrorAction SilentlyContinue
   Write-Step 'Dang khoi dong website va gateway tren cung cong 8787...'
 
-  # Start Node directly. The previous cmd.exe /c wrapper could exit immediately
-  # when node.exe was installed under a path containing spaces such as
-  # C:\Program Files\nodejs, leaving an empty log and ERR_CONNECTION_REFUSED.
-  $quotedEntry = '"{0}"' -f $ServerEntry
-  $process = Start-Process \
-    -FilePath $Runtime.Node \
-    -ArgumentList $quotedEntry \
-    -WorkingDirectory $Root \
-    -WindowStyle Hidden \
-    -RedirectStandardOutput $LogFile \
-    -RedirectStandardError $ErrorLog \
-    -PassThru
-
+  # Start node.exe directly. This avoids cmd.exe /c quote handling when Node is
+  # installed under C:\Program Files\nodejs and makes the stored PID the real
+  # server process rather than a temporary command shell.
+  $startParameters = @{
+    FilePath = $Runtime.Node
+    ArgumentList = ('"{0}"' -f $ServerEntry)
+    WorkingDirectory = $Root
+    WindowStyle = 'Hidden'
+    RedirectStandardOutput = $LogFile
+    RedirectStandardError = $ErrorLog
+    PassThru = $true
+  }
+  $process = Start-Process @startParameters
   Set-Content $PidFile $process.Id -Encoding ASCII
 
   $deadline = (Get-Date).AddSeconds(120)

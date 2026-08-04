@@ -1,21 +1,17 @@
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
-$PidFile = Join-Path $Root '.vipocket\portable.pid'
+$PidFile = Join-Path $Root '.vipocket\standalone.pid'
 
-function Test-OwnedProcess {
-  param([int]$ProcessId)
+function Test-OwnedProcess([int]$ProcessId) {
   try {
     $details = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction SilentlyContinue
     return ($details -and $details.CommandLine -and $details.CommandLine.Contains($Root))
-  } catch {
-    return $false
-  }
+  } catch { return $false }
 }
 
-function Stop-ProcessTree {
-  param([int]$ProcessId)
+function Stop-ProcessTree([int]$ProcessId) {
   $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
-  if ($process -and (Test-OwnedProcess -ProcessId $ProcessId)) {
+  if ($process -and (Test-OwnedProcess $ProcessId)) {
     & taskkill.exe /PID $ProcessId /T /F 2>$null | Out-Null
     Start-Sleep -Milliseconds 800
     return $true
@@ -23,36 +19,27 @@ function Stop-ProcessTree {
   return $false
 }
 
-function Stop-OwnedPortProcess {
-  param([int]$Port)
+function Stop-OwnedPortProcess([int]$Port) {
   try {
     $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     foreach ($connection in $connections) {
-      $pidValue = [int]$connection.OwningProcess
-      if (Test-OwnedProcess -ProcessId $pidValue) {
-        Stop-ProcessTree -ProcessId $pidValue | Out-Null
-      }
+      $owner = [int]$connection.OwningProcess
+      if (Test-OwnedProcess $owner) { Stop-ProcessTree $owner | Out-Null }
     }
-  } catch {
-    # The PID file remains the primary shutdown path. Port recovery is best effort.
-  }
+  } catch {}
 }
 
 try {
   $stopped = $false
   if (Test-Path $PidFile) {
-    $savedPid = (Get-Content -LiteralPath $PidFile -Raw).Trim()
-    if ($savedPid -match '^\d+$') {
-      $stopped = Stop-ProcessTree -ProcessId ([int]$savedPid)
-    }
-    Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+    $savedPid = (Get-Content $PidFile -Raw).Trim()
+    if ($savedPid -match '^\d+$') { $stopped = Stop-ProcessTree ([int]$savedPid) }
+    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
   }
-
-  Stop-OwnedPortProcess -Port 5173
-  Stop-OwnedPortProcess -Port 8787
+  Stop-OwnedPortProcess 5173
 
   if ($stopped) {
-    Write-Host '[OK] Da dung ViPocket-Xiaozhi va toan bo tien trinh con.' -ForegroundColor Green
+    Write-Host '[OK] Da dung ViPocket-Xiaozhi.' -ForegroundColor Green
   } else {
     Write-Host '[ViPocket] Khong con tien trinh ViPocket dang chay.' -ForegroundColor Yellow
   }

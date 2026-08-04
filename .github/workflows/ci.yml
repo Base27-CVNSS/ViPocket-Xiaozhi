@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: vipocket-${{ github.workflow }}-${{ github.ref }}
@@ -16,7 +16,9 @@ concurrency:
 
 jobs:
   verify:
+    name: Verify single server
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,28 +28,18 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install
-        run: npm install --no-audit --no-fund
+      - name: Install production dependency
+        run: npm install --omit=dev --no-audit --no-fund
 
-      - name: Syntax checks
-        run: |
-          node --check scripts/portable-runner.mjs
-          node --check apps/gateway/src/index.mjs
-          node --check apps/gateway/src/activation-service.mjs
-          node --check apps/web/src/main.js
-          node --check apps/web/src/audio/voice-engine.js
+      - name: Syntax and unit tests
+        run: npm run check
 
-      - name: Test gateway
-        run: npm test
-
-      - name: Build web
-        run: npm run build
-
-      - name: Smoke-test production runner
+      - name: Smoke-test website and health API
         shell: bash
         run: |
+          set -euo pipefail
           cp .env.example .env
-          npm start > /tmp/vipocket.log 2>&1 &
+          npm start > "$RUNNER_TEMP/vipocket-linux.log" 2>&1 &
           APP_PID=$!
           cleanup() {
             kill "$APP_PID" 2>/dev/null || true
@@ -55,21 +47,31 @@ jobs:
           }
           trap cleanup EXIT
 
-          for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:5173/ >/tmp/vipocket-index.html \
-              && curl -fsS http://127.0.0.1:8787/health >/tmp/vipocket-health.json; then
+          ready=0
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent --show-error http://127.0.0.1:5173/ > "$RUNNER_TEMP/index.html" \
+              && curl --fail --silent --show-error http://127.0.0.1:5173/health > "$RUNNER_TEMP/health.json" \
+              && curl --fail --silent --show-error http://127.0.0.1:5173/src/main.js > "$RUNNER_TEMP/main.js"; then
+              ready=1
               break
             fi
             sleep 1
           done
 
-          grep -q 'ViPocket' /tmp/vipocket-index.html
-          grep -q 'vipocket-gateway' /tmp/vipocket-health.json
+          if [ "$ready" -ne 1 ]; then
+            cat "$RUNNER_TEMP/vipocket-linux.log"
+            exit 1
+          fi
+
+          grep -q 'ViPocket Xiaozhi' "$RUNNER_TEMP/index.html"
+          grep -q 'vipocket-standalone' "$RUNNER_TEMP/health.json"
+          grep -q 'ViPocket 2.2 initialized' "$RUNNER_TEMP/main.js"
 
   windows-portable:
-    if: github.event_name != 'pull_request'
+    name: Build and test Windows portable
     needs: verify
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,11 +84,8 @@ jobs:
       - name: Validate PowerShell launchers
         shell: pwsh
         run: |
-          $files = @(
-            'scripts\windows-one-click.ps1',
-            'scripts\windows-stop.ps1'
-          )
-          foreach ($file in $files) {
+          $ErrorActionPreference = 'Stop'
+          foreach ($file in @('scripts\windows-one-click.ps1', 'scripts\windows-stop.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
@@ -95,40 +94,31 @@ jobs:
               [ref]$errors
             ) | Out-Null
             if ($errors.Count -gt 0) {
-              $errors | Format-List | Out-String | Write-Error
+              $errors | Format-List | Out-String | Write-Host
               throw "PowerShell syntax error in $file"
             }
           }
 
-      - name: Install and build
+      - name: Install production dependency and test
         shell: pwsh
         run: |
-          npm install --no-audit --no-fund
+          npm install --omit=dev --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run build
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm prune --omit=dev --no-audit --no-fund
+          npm run check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Assemble portable Windows folder
+      - name: Assemble Windows portable folder
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $stage = Join-Path $PWD 'release\ViPocket-Xiaozhi'
           $releaseRoot = Join-Path $PWD 'release'
+          $stage = Join-Path $releaseRoot 'ViPocket-Xiaozhi'
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-          $robocopyArgs = @(
-            '.', $stage, '/E',
-            '/XD', '.git', '.github', 'node_modules', 'release', '.vipocket', 'logs',
-            '/XF', '.env', '*.log'
-          )
-          & robocopy @robocopyArgs | Out-Host
-          if ($LASTEXITCODE -gt 7) { throw "robocopy source failed: $LASTEXITCODE" }
+          & robocopy . $stage /E /XD .git .github node_modules release .vipocket logs runtime /XF .env *.log | Out-Host
+          if ($LASTEXITCODE -gt 7) { throw "robocopy failed with code $LASTEXITCODE" }
 
-          Copy-Item -LiteralPath (Join-Path $PWD 'node_modules') -Destination (Join-Path $stage 'node_modules') -Recurse -Force
+          Copy-Item (Join-Path $PWD 'node_modules') (Join-Path $stage 'node_modules') -Recurse -Force
 
           $nodeVersion = (& node -p 'process.versions.node').Trim()
           $nodeZip = "node-v$nodeVersion-win-x64.zip"
@@ -136,40 +126,47 @@ jobs:
           $nodeZipPath = Join-Path $releaseRoot $nodeZip
           $nodeExtract = Join-Path $releaseRoot 'node-extract'
           Invoke-WebRequest -UseBasicParsing -Uri $nodeUrl -OutFile $nodeZipPath
-          Expand-Archive -LiteralPath $nodeZipPath -DestinationPath $nodeExtract -Force
-          $runtimeFolder = Get-ChildItem -LiteralPath $nodeExtract -Directory | Select-Object -First 1
-          if (-not $runtimeFolder) { throw 'Node runtime folder was not found.' }
-          Move-Item -LiteralPath $runtimeFolder.FullName -Destination (Join-Path $stage 'runtime')
+          Expand-Archive $nodeZipPath $nodeExtract -Force
+          $runtimeFolder = Get-ChildItem $nodeExtract -Directory | Select-Object -First 1
+          if (-not $runtimeFolder) { throw 'Node.js runtime folder was not found.' }
+          Move-Item $runtimeFolder.FullName (Join-Path $stage 'runtime')
 
           @"
-          ViPocket-Xiaozhi Windows Portable 2.1.0
-          Built: $(Get-Date -Format o)
+          ViPocket-Xiaozhi Windows Portable 2.2.0
           Commit: $env:GITHUB_SHA
           Node.js: $nodeVersion
 
           Double-click START-VIPOCKET.cmd.
-          No Git, Node.js installation or npm install is required.
-          "@ | Set-Content -LiteralPath (Join-Path $stage 'PORTABLE-BUILD.txt') -Encoding UTF8
+          Website and gateway share http://127.0.0.1:5173.
+          Git, Node.js installation, and npm install are not required.
+          "@ | Set-Content (Join-Path $stage 'PORTABLE-BUILD.txt') -Encoding UTF8
 
-      - name: Smoke-test assembled Windows folder
+      - name: Smoke-test assembled portable folder
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $PWD 'release\ViPocket-Xiaozhi'
-          Copy-Item -LiteralPath (Join-Path $stage '.env.example') -Destination (Join-Path $stage '.env') -Force
+          Copy-Item (Join-Path $stage '.env.example') (Join-Path $stage '.env') -Force
           $node = Join-Path $stage 'runtime\node.exe'
-          $runner = Join-Path $stage 'scripts\portable-runner.mjs'
+          $entry = Join-Path $stage 'apps\gateway\src\standalone.mjs'
           $log = Join-Path $stage 'portable-smoke.log'
-          $command = '"{0}" "{1}" 1>>"{2}" 2>&1' -f $node, $runner, $log
-          $process = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/c', $command) -WorkingDirectory $stage -WindowStyle Hidden -PassThru
+          $command = '"{0}" "{1}" 1>>"{2}" 2>&1' -f $node, $entry, $log
+          $process = Start-Process cmd.exe -ArgumentList @('/d', '/c', $command) -WorkingDirectory $stage -WindowStyle Hidden -PassThru
+
           try {
             $ready = $false
-            for ($i = 0; $i -lt 90; $i++) {
+            for ($attempt = 1; $attempt -le 60; $attempt++) {
               Start-Sleep -Seconds 1
               try {
-                $web = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:5173/' -TimeoutSec 2
-                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -TimeoutSec 2
-                if ($web.StatusCode -eq 200 -and $web.Content -match 'ViPocket' -and $health.service -eq 'vipocket-gateway') {
+                $page = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:5173/' -TimeoutSec 2
+                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:5173/health' -TimeoutSec 2
+                $main = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:5173/src/main.js' -TimeoutSec 2
+                if (
+                  $page.StatusCode -eq 200 -and
+                  $page.Content -match 'ViPocket Xiaozhi' -and
+                  $health.service -eq 'vipocket-standalone' -and
+                  $main.Content -match 'ViPocket 2.2 initialized'
+                ) {
                   $ready = $true
                   break
                 }
@@ -177,8 +174,8 @@ jobs:
               if ($process.HasExited) { break }
             }
             if (-not $ready) {
-              if (Test-Path $log) { Get-Content -LiteralPath $log -Tail 100 | Out-Host }
-              throw 'Assembled Windows package did not pass health checks.'
+              if (Test-Path $log) { Get-Content $log -Tail 100 | Out-Host }
+              throw 'Windows portable smoke test failed.'
             }
           } finally {
             if (-not $process.HasExited) {
@@ -186,15 +183,15 @@ jobs:
             }
           }
 
-      - name: Compress Windows portable ZIP
+      - name: Create portable ZIP
         shell: pwsh
         run: |
           $stage = Join-Path $PWD 'release\ViPocket-Xiaozhi'
-          Remove-Item -LiteralPath (Join-Path $stage '.env') -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath (Join-Path $stage 'portable-smoke.log') -Force -ErrorAction SilentlyContinue
-          $zipPath = Join-Path $PWD 'release\ViPocket-Xiaozhi-Windows-x64.zip'
-          Compress-Archive -Path $stage -DestinationPath $zipPath -CompressionLevel Optimal -Force
-          if (-not (Test-Path $zipPath)) { throw 'Portable ZIP was not created.' }
+          Remove-Item (Join-Path $stage '.env') -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $stage 'portable-smoke.log') -Force -ErrorAction SilentlyContinue
+          $zip = Join-Path $PWD 'release\ViPocket-Xiaozhi-Windows-x64.zip'
+          Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal -Force
+          if (-not (Test-Path $zip)) { throw 'Portable ZIP was not created.' }
 
       - name: Upload Windows portable ZIP
         uses: actions/upload-artifact@v4
@@ -205,9 +202,11 @@ jobs:
           retention-days: 30
           compression-level: 0
 
-      - name: Publish tagged GitHub Release
+      - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
+        permissions:
+          contents: write
         with:
           generate_release_notes: true
           files: release/ViPocket-Xiaozhi-Windows-x64.zip

@@ -1,10 +1,15 @@
-import './styles.css';
 import { applyLanguage, messages } from './core/i18n.js';
 import { UiStateMachine } from './core/state-machine.js';
 import { createAbort, createHello, createListen, parseServerMessage } from './core/protocol.js';
 import { VoiceEngine } from './audio/voice-engine.js';
 
+const stylesheet = document.createElement('link');
+stylesheet.rel = 'stylesheet';
+stylesheet.href = new URL('./styles.css', import.meta.url).href;
+document.head.append(stylesheet);
+
 const $ = (selector) => document.querySelector(selector);
+const localOrigin = window.location.origin;
 const storage = {
   get(key, fallback = null) {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
@@ -12,9 +17,15 @@ const storage = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
 };
 
+function createDeviceId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  return `web-${Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join(':')}`;
+}
+
+const savedGateway = storage.get('vipocket.gatewayUrl', localOrigin);
 const state = {
   language: storage.get('vipocket.language', 'vi'),
-  gatewayUrl: storage.get('vipocket.gatewayUrl', 'http://127.0.0.1:8787'),
+  gatewayUrl: savedGateway.includes(':8787') ? localOrigin : savedGateway,
   deviceLanguage: storage.get('vipocket.deviceLanguage', 'vi-VN'),
   deviceId: storage.get('vipocket.deviceId') || createDeviceId(),
   clientId: storage.get('vipocket.clientId') || crypto.randomUUID(),
@@ -32,73 +43,80 @@ const state = {
 
 storage.set('vipocket.deviceId', state.deviceId);
 storage.set('vipocket.clientId', state.clientId);
-
-function createDeviceId() {
-  const bytes = crypto.getRandomValues(new Uint8Array(6));
-  return `web-${Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join(':')}`;
-}
+storage.set('vipocket.gatewayUrl', state.gatewayUrl);
 
 function t(key) {
   return messages[state.language]?.[key] || messages.vi[key] || key;
 }
 
 function log(message, detail = '') {
+  const view = $('#eventLog');
+  if (!view) return;
   const stamp = new Date().toLocaleTimeString();
-  const line = `[${stamp}] ${message}${detail ? ` · ${detail}` : ''}`;
-  const logView = $('#eventLog');
-  logView.textContent += `${line}\n`;
-  logView.scrollTop = logView.scrollHeight;
+  view.textContent += `[${stamp}] ${message}${detail ? ` · ${detail}` : ''}\n`;
+  view.scrollTop = view.scrollHeight;
 }
 
 function showNotice(element, message = '', type = 'info') {
+  if (!element) return;
   element.textContent = message;
   element.className = `notice ${type}${message ? '' : ' hidden'}`;
 }
 
-function setButtonBusy(button, busy, busyText) {
+function setButtonBusy(button, busy, busyText = '') {
+  if (!button) return;
   if (busy) {
-    button.dataset.label = button.textContent;
-    button.textContent = busyText;
+    button.dataset.originalLabel = button.textContent;
+    button.textContent = busyText || '…';
     button.disabled = true;
   } else {
-    button.textContent = button.dataset.label || button.textContent;
+    button.textContent = button.dataset.originalLabel || button.textContent;
     button.disabled = false;
-    delete button.dataset.label;
+    delete button.dataset.originalLabel;
   }
 }
 
 function normalizeGatewayUrl(value) {
-  const url = new URL(value);
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Gateway URL must use http:// or https://.');
+  const url = new URL(value || localOrigin, window.location.href);
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Gateway URL must use HTTP or HTTPS.');
   return url.origin;
 }
 
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body !== undefined && !headers['content-type']) headers['content-type'] = 'application/json';
-  const response = await fetch(`${state.gatewayUrl}${path}`, {
-    ...options,
-    headers
-  });
-  if (response.status === 204) return null;
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.message || `Gateway request failed (HTTP ${response.status}).`);
-  return data;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch(`${state.gatewayUrl}${path}`, { ...options, headers, signal: controller.signal });
+    if (response.status === 204) return null;
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.message || `HTTP ${response.status}`);
+    return payload;
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('Local server did not respond in time.');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 const ui = new UiStateMachine('setup', (next) => {
   for (const name of ['setup', 'activate', 'talk']) {
-    $(`#${name}Stage`).classList.toggle('hidden', name !== next);
+    $(`#${name}Stage`)?.classList.toggle('hidden', name !== next);
   }
   const order = ['setup', 'activate', 'talk'];
-  const activeIndex = order.indexOf(next);
+  const active = order.indexOf(next);
   document.querySelectorAll('.step').forEach((element, index) => {
-    element.classList.toggle('active', index === activeIndex);
-    element.classList.toggle('done', index < activeIndex);
+    element.classList.toggle('active', index === active);
+    element.classList.toggle('done', index < active);
   });
-  document.querySelectorAll('.steps > i').forEach((element, index) => element.classList.toggle('done', index < activeIndex));
-  $('#stageTitle').dataset.i18n = `stage.${next}.title`;
-  $('#stageTitle').textContent = t(`stage.${next}.title`);
+  document.querySelectorAll('.steps > i').forEach((element, index) => element.classList.toggle('done', index < active));
+  const title = $('#stageTitle');
+  if (title) {
+    title.dataset.i18n = `stage.${next}.title`;
+    title.textContent = t(`stage.${next}.title`);
+  }
 });
 
 const voice = new VoiceEngine({
@@ -107,7 +125,8 @@ const voice = new VoiceEngine({
     if (state.socket?.readyState === WebSocket.OPEN && state.pttActive) state.socket.send(packet);
   },
   onLevel(level) {
-    $('#meterFill').style.width = `${Math.max(3, Math.round(level * 100))}%`;
+    const meter = $('#meterFill');
+    if (meter) meter.style.width = `${Math.max(3, Math.round(level * 100))}%`;
   },
   onError(error) {
     log('Audio engine error', error.message);
@@ -124,8 +143,10 @@ function updateLanguage() {
 function updateNetwork() {
   const online = navigator.onLine;
   const status = $('#networkStatus');
+  if (!status) return;
   status.classList.toggle('offline', !online);
-  status.querySelector('span').textContent = t(online ? 'network.online' : 'network.offline');
+  const label = status.querySelector('span');
+  if (label) label.textContent = t(online ? 'network.online' : 'network.offline');
 }
 
 async function updateDiagnostics() {
@@ -140,40 +161,41 @@ function renderActivation(session) {
   state.activationSession = session;
   storage.set('vipocket.activationSession', session);
   $('#deviceIdLabel').textContent = state.deviceId;
-  $('#activationState').textContent = session.status === 'activated' ? 'Activated' : 'Pending';
-  $('#activationState').classList.toggle('success', session.status === 'activated');
+  const status = $('#activationState');
+  status.textContent = session.status === 'activated' ? 'Activated' : 'Pending';
+  status.classList.toggle('success', session.status === 'activated');
   const code = String(session.code || '').replace(/\s/g, '');
   $('#activationCode').textContent = code ? code.replace(/(.{3})/, '$1 ') : '------';
   $('#activationMessage').textContent = session.message || '';
   $('#activationCard').classList.remove('hidden');
 }
 
-async function testGateway() {
+async function testGateway({ automatic = false } = {}) {
   const button = $('#testGatewayButton');
-  setButtonBusy(button, true, state.language === 'vi' ? 'Đang kiểm tra…' : 'Testing…');
+  if (!automatic) setButtonBusy(button, true, state.language === 'vi' ? 'Đang kiểm tra…' : 'Testing…');
   showNotice($('#setupNotice'));
   try {
     state.gatewayUrl = normalizeGatewayUrl($('#gatewayUrl').value.trim());
     state.deviceLanguage = $('#deviceLanguage').value;
     storage.set('vipocket.gatewayUrl', state.gatewayUrl);
     storage.set('vipocket.deviceLanguage', state.deviceLanguage);
-    const health = await api('/health', { method: 'GET', headers: {} });
+    const health = await api('/health');
     state.gatewayReady = true;
     $('#gatewayValue').textContent = 'ONLINE';
-    log('Gateway connected', `${health.service} ${health.version}`);
+    log('Local server connected', `${health.service} ${health.version}`);
     if (!health.activationConfigured) {
       showNotice($('#setupNotice'), state.language === 'vi'
-        ? 'Gateway đang chạy nhưng chưa cấu hình XIAOZHI_OTA_URL hoặc WebSocket/token cố định.'
-        : 'Gateway is online but XIAOZHI_OTA_URL or fixed WebSocket/token is not configured.', 'warn');
+        ? 'Website đã chạy. Để kết nối Xiaozhi thật, mở CONFIGURE-XIAOZHI.cmd và điền endpoint/token hợp lệ.'
+        : 'Website is running. Configure an authorized Xiaozhi endpoint/token before activation.', 'warn');
     }
     ui.move('activate');
   } catch (error) {
     state.gatewayReady = false;
     $('#gatewayValue').textContent = 'OFFLINE';
     showNotice($('#setupNotice'), error.message, 'error');
-    log('Gateway check failed', error.message);
+    log('Local server check failed', error.message);
   } finally {
-    setButtonBusy(button, false);
+    if (!automatic) setButtonBusy(button, false);
     updateDiagnostics();
   }
 }
@@ -191,7 +213,7 @@ async function requestActivation() {
         language: state.deviceLanguage,
         systemInfo: {
           client: 'ViPocket-Xiaozhi',
-          version: '2.0.0',
+          version: '2.2.0',
           platform: navigator.platform,
           userAgent: navigator.userAgent,
           capabilities: await VoiceEngine.capabilities()
@@ -220,7 +242,7 @@ async function pollActivation({ silent = false } = {}) {
   const button = $('#pollButton');
   if (!silent) setButtonBusy(button, true, state.language === 'vi' ? 'Đang kiểm tra…' : 'Checking…');
   try {
-    const session = await api(`/api/v1/activation/${state.activationSession.id}`, { method: 'GET', headers: {} });
+    const session = await api(`/api/v1/activation/${state.activationSession.id}`);
     renderActivation(session);
     if (session.status === 'activated') completeActivation(session);
     else if (!silent) showNotice($('#activationNotice'), state.language === 'vi' ? 'Thiết bị vẫn đang chờ liên kết.' : 'The device is still waiting for pairing.', 'warn');
@@ -236,7 +258,7 @@ function completeActivation(session) {
   clearInterval(state.pollTimer);
   state.pollTimer = null;
   renderActivation(session);
-  showNotice($('#activationNotice'), state.language === 'vi' ? 'Kích hoạt thành công. Có thể mở phiên thoại.' : 'Activation complete. The voice session is ready.', 'success');
+  showNotice($('#activationNotice'), state.language === 'vi' ? 'Kích hoạt thành công.' : 'Activation completed.', 'success');
   log('Device activated', session.id);
   ui.move('talk');
 }
@@ -260,8 +282,9 @@ async function connectVoice() {
   showNotice($('#voiceNotice'));
   try {
     const caps = await VoiceEngine.capabilities();
-    if (!caps.secure || !caps.opus || !caps.worklet) throw new Error('Secure context, AudioWorklet and WebCodecs Opus are required. Use localhost on current Edge/Chrome.');
-    const { ticket } = await api(`/api/v1/activation/${state.activationSession.id}/ticket`, { method: 'POST', body: '{}' });
+    if (!caps.secure || !caps.opus || !caps.worklet) throw new Error('Current Edge/Chrome must support Secure Context, AudioWorklet and WebCodecs Opus.');
+    if (!state.activationSession?.id) throw new Error('No activated device session is available.');
+    const { token: ticket } = await api(`/api/v1/activation/${state.activationSession.id}/ticket`, { method: 'POST', body: '{}' });
     const socket = new WebSocket(websocketUrl(ticket));
     socket.binaryType = 'arraybuffer';
     state.socket = socket;
@@ -277,7 +300,7 @@ async function connectVoice() {
       }, { once: true });
       socket.addEventListener('error', () => {
         clearTimeout(timer);
-        reject(new Error('Unable to open gateway WebSocket.'));
+        reject(new Error('Unable to open local WebSocket.'));
       }, { once: true });
     });
 
@@ -299,49 +322,37 @@ function handleSocketMessage(event) {
     voice.decode(event.data);
     return;
   }
-
   try {
     const message = parseServerMessage(event.data);
     log('RX JSON', message.type);
-    switch (message.type) {
-      case 'hello': {
-        if (message.transport !== 'websocket') throw new Error('Unexpected Xiaozhi transport.');
-        state.protocolSessionId = message.session_id || '';
-        const outputRate = message.audio_params?.sample_rate || 24000;
-        voice.configureDecoder(outputRate);
-        $('#latencyLabel').textContent = `${Math.round(performance.now() - state.connectedAt)} ms`;
-        $('#connectionBadge').textContent = state.language === 'vi' ? 'Đã kết nối' : 'Connected';
+    if (message.type === 'hello') {
+      if (message.transport !== 'websocket') throw new Error('Unexpected Xiaozhi transport.');
+      state.protocolSessionId = message.session_id || '';
+      voice.configureDecoder(message.audio_params?.sample_rate || 24000);
+      $('#latencyLabel').textContent = `${Math.round(performance.now() - state.connectedAt)} ms`;
+      $('#connectionBadge').textContent = state.language === 'vi' ? 'Đã kết nối' : 'Connected';
+      $('#voiceTitle').textContent = t('talk.ready');
+      $('#pttButton').disabled = false;
+      $('#interruptButton').disabled = !state.bargeIn;
+      showNotice($('#voiceNotice'), state.language === 'vi' ? 'Bắt tay giao thức thành công.' : 'Protocol handshake completed.', 'success');
+    } else if (message.type === 'stt') {
+      $('#userTranscript').textContent = message.text || '…';
+    } else if (message.type === 'llm') {
+      $('#voiceOrb').dataset.emotion = message.emotion || 'neutral';
+    } else if (message.type === 'tts') {
+      if (message.state === 'start') {
+        $('#voiceOrb').classList.add('speaking');
+        $('#voiceTitle').textContent = state.language === 'vi' ? 'Xiaozhi đang nói…' : 'Xiaozhi is speaking…';
+      } else if (message.state === 'stop') {
+        $('#voiceOrb').classList.remove('speaking');
         $('#voiceTitle').textContent = t('talk.ready');
-        $('#pttButton').disabled = false;
-        $('#interruptButton').disabled = !state.bargeIn;
-        showNotice($('#voiceNotice'), state.language === 'vi' ? 'Bắt tay giao thức thành công.' : 'Protocol handshake completed.', 'success');
-        break;
+      } else if (message.state === 'sentence_start' && message.text) {
+        $('#assistantTranscript').textContent = message.text;
       }
-      case 'stt':
-        $('#userTranscript').textContent = message.text || '…';
-        break;
-      case 'llm':
-        $('#voiceOrb').dataset.emotion = message.emotion || 'neutral';
-        break;
-      case 'tts':
-        if (message.state === 'start') {
-          $('#voiceOrb').classList.add('speaking');
-          $('#voiceTitle').textContent = state.language === 'vi' ? 'Xiaozhi đang nói…' : 'Xiaozhi is speaking…';
-        } else if (message.state === 'stop') {
-          $('#voiceOrb').classList.remove('speaking');
-          $('#voiceTitle').textContent = t('talk.ready');
-        } else if (message.state === 'sentence_start' && message.text) {
-          $('#assistantTranscript').textContent = message.text;
-        }
-        break;
-      case 'alert':
-        showNotice($('#voiceNotice'), `${message.status || 'Alert'}: ${message.message || ''}`, 'warn');
-        break;
-      case 'mcp':
-        log('MCP message', message.payload?.method || 'response');
-        break;
-      default:
-        log('Unhandled message', message.type);
+    } else if (message.type === 'alert') {
+      showNotice($('#voiceNotice'), `${message.status || 'Alert'}: ${message.message || ''}`, 'warn');
+    } else if (message.type === 'mcp') {
+      log('MCP message', message.payload?.method || 'response');
     }
   } catch (error) {
     log('Invalid server message', error.message);
@@ -379,7 +390,6 @@ async function startTalking() {
     await voice.startCapture();
     $('#voiceOrb').classList.add('listening');
     $('#voiceTitle').textContent = state.language === 'vi' ? 'Đang lắng nghe…' : 'Listening…';
-    log('Microphone started', state.listenMode);
   } catch (error) {
     state.pttActive = false;
     showNotice($('#voiceNotice'), error.message, 'error');
@@ -395,15 +405,11 @@ async function stopTalking() {
   if (state.socket?.readyState === WebSocket.OPEN && state.protocolSessionId) {
     sendJson(createListen(state.protocolSessionId, 'stop', state.listenMode));
   }
-  log('Microphone stopped');
 }
 
 function interrupt() {
   voice.interruptPlayback();
-  if (state.socket?.readyState === WebSocket.OPEN && state.protocolSessionId) {
-    sendJson(createAbort(state.protocolSessionId, 'user_interruption'));
-    log('Barge-in sent');
-  }
+  if (state.socket?.readyState === WebSocket.OPEN && state.protocolSessionId) sendJson(createAbort(state.protocolSessionId, 'user_interruption'));
 }
 
 function restoreUi() {
@@ -433,14 +439,12 @@ $('#saveSettingsButton').addEventListener('click', (event) => {
   storage.set('vipocket.bargeIn', state.bargeIn);
   $('#settingsDialog').close();
 });
-$('#testGatewayButton').addEventListener('click', testGateway);
+$('#testGatewayButton').addEventListener('click', () => testGateway());
 $('#requestCodeButton').addEventListener('click', requestActivation);
 $('#pollButton').addEventListener('click', () => pollActivation());
 $('#copyCodeButton').addEventListener('click', async () => {
   const code = String(state.activationSession?.code || '');
-  if (!code) return;
-  await navigator.clipboard.writeText(code);
-  log('Activation code copied');
+  if (code) await navigator.clipboard.writeText(code);
 });
 $('#connectButton').addEventListener('click', () => {
   if (state.socket?.readyState === WebSocket.OPEN) disconnectVoice();
@@ -462,7 +466,6 @@ window.addEventListener('offline', updateNetwork);
 window.addEventListener('beforeunload', () => {
   clearInterval(state.pollTimer);
   disconnectVoice();
-  voice.close();
 });
 
 document.querySelectorAll('.step').forEach((button) => {
@@ -478,4 +481,5 @@ updateLanguage();
 updateNetwork();
 restoreUi();
 updateDiagnostics();
-log('ViPocket initialized', `${state.deviceId} / ${state.clientId}`);
+log('ViPocket 2.2 initialized', `${state.deviceId} / ${state.clientId}`);
+window.setTimeout(() => testGateway({ automatic: true }), 250);

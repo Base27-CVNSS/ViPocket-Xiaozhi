@@ -11,12 +11,12 @@ $Root = Split-Path -Parent $PSScriptRoot
 $StateDir = Join-Path $Root '.vipocket'
 $LogDir = Join-Path $Root 'logs'
 $LogFile = Join-Path $LogDir 'vipocket.log'
-$PidFile = Join-Path $StateDir 'portable.pid'
+$PidFile = Join-Path $StateDir 'server.pid'
 $BundledRuntime = Join-Path $Root 'runtime'
 $DownloadedRuntime = Join-Path $StateDir 'runtime'
-$RunnerPath = Join-Path $Root 'scripts\portable-runner.mjs'
-$WebUrl = 'http://127.0.0.1:5173'
-$GatewayHealthUrl = 'http://127.0.0.1:8787/health'
+$ServerEntry = Join-Path $Root 'apps\gateway\src\index.mjs'
+$WebsiteUrl = 'http://127.0.0.1:8787/'
+$HealthUrl = 'http://127.0.0.1:8787/health'
 $MinimumNode = [Version]'20.11.0'
 
 New-Item -ItemType Directory -Force -Path $StateDir, $LogDir | Out-Null
@@ -37,8 +37,7 @@ function Get-NodeVersion {
   param([string]$NodePath)
   if (-not $NodePath -or -not (Test-Path $NodePath)) { return $null }
   try {
-    $raw = (& $NodePath -p 'process.versions.node').Trim()
-    return [Version]$raw
+    return [Version]((& $NodePath -p 'process.versions.node').Trim())
   } catch {
     return $null
   }
@@ -46,7 +45,7 @@ function Get-NodeVersion {
 
 function New-RuntimeResult {
   param([string]$NodePath, [string]$NpmPath, [string]$Source)
-  return [PSCustomObject]@{
+  [PSCustomObject]@{
     Node = $NodePath
     Npm = $NpmPath
     Source = $Source
@@ -67,8 +66,7 @@ function Test-RuntimeFolder {
 
 function Download-PortableNode {
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  Write-Step 'Khong tim thay Node.js phu hop. Dang tai Node.js LTS portable, khong can quyen Admin...'
-
+  Write-Step 'Dang tai Node.js LTS portable. Khong can quyen Admin...'
   $releases = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -TimeoutSec 30
   $release = $releases |
     Where-Object {
@@ -77,37 +75,30 @@ function Download-PortableNode {
       ([Version]($_.version.TrimStart('v'))) -ge $MinimumNode
     } |
     Select-Object -First 1
+  if (-not $release) { throw 'Khong tim thay Node.js LTS win-x64 phu hop.' }
 
-  if (-not $release) {
-    throw 'Khong tim thay ban Node.js LTS win-x64 phu hop tren nodejs.org.'
-  }
-
-  $versionText = $release.version
-  $zipName = "node-$versionText-win-x64.zip"
-  $downloadUrl = "https://nodejs.org/dist/$versionText/$zipName"
+  $zipName = "node-$($release.version)-win-x64.zip"
   $zipPath = Join-Path $StateDir $zipName
   $extractPath = Join-Path $StateDir 'node-extract'
+  $downloadUrl = "https://nodejs.org/dist/$($release.version)/$zipName"
 
-  Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $extractPath -Recurse -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $DownloadedRuntime -Recurse -Force -ErrorAction SilentlyContinue
-
-  Invoke-WebRequest -UseBasicParsing -Uri $downloadUrl -OutFile $zipPath -TimeoutSec 180
+  Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+  Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item $DownloadedRuntime -Recurse -Force -ErrorAction SilentlyContinue
+  Invoke-WebRequest -UseBasicParsing -Uri $downloadUrl -OutFile $zipPath -TimeoutSec 240
   Expand-Archive -LiteralPath $zipPath -DestinationPath $extractPath -Force
-  $folder = Get-ChildItem -LiteralPath $extractPath -Directory | Select-Object -First 1
-  if (-not $folder) { throw 'Goi Node.js portable khong co thu muc runtime hop le.' }
-
-  Move-Item -LiteralPath $folder.FullName -Destination $DownloadedRuntime
-  Remove-Item -LiteralPath $extractPath -Recurse -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
+  $folder = Get-ChildItem $extractPath -Directory | Select-Object -First 1
+  if (-not $folder) { throw 'Goi Node.js portable khong hop le.' }
+  Move-Item $folder.FullName $DownloadedRuntime
+  Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 
   $runtime = Test-RuntimeFolder -Folder $DownloadedRuntime -Source 'downloaded-portable'
-  if (-not $runtime) { throw 'Node.js portable tai ve khong khoi dong duoc.' }
-  Write-Ok "Da tai Node.js $($runtime.Version) portable."
+  if (-not $runtime) { throw 'Node.js portable khong khoi dong duoc.' }
   return $runtime
 }
 
-function Resolve-NodeRuntime {
+function Resolve-Runtime {
   $runtime = Test-RuntimeFolder -Folder $BundledRuntime -Source 'bundled-portable'
   if ($runtime) { return $runtime }
 
@@ -122,76 +113,53 @@ function Resolve-NodeRuntime {
       return New-RuntimeResult -NodePath $systemNode.Source -NpmPath $systemNpm.Source -Source 'system'
     }
   }
-
   return Download-PortableNode
 }
 
-function Ensure-EnvironmentFile {
+function Ensure-Environment {
   $envFile = Join-Path $Root '.env'
-  $exampleFile = Join-Path $Root '.env.example'
   if (-not (Test-Path $envFile)) {
-    if (-not (Test-Path $exampleFile)) { throw 'Thieu tep .env.example.' }
-    Copy-Item -LiteralPath $exampleFile -Destination $envFile
-    Write-Ok 'Da tao .env. Website local co the chay ngay.'
+    $example = Join-Path $Root '.env.example'
+    if (-not (Test-Path $example)) { throw 'Thieu .env.example.' }
+    Copy-Item $example $envFile
+    Write-Ok 'Da tao .env mac dinh.'
   }
 }
 
-function Test-PortableFiles {
-  return (
-    (Test-Path (Join-Path $Root 'node_modules\fastify')) -and
-    (Test-Path (Join-Path $Root 'apps\web\dist\index.html')) -and
-    (Test-Path $RunnerPath)
-  )
+function Test-AppFiles {
+  (Test-Path $ServerEntry) -and
+  (Test-Path (Join-Path $Root 'apps\web\dist\index.html')) -and
+  (Test-Path (Join-Path $Root 'node_modules\ws'))
 }
 
-function Ensure-ApplicationFiles {
+function Ensure-AppFiles {
   param([PSCustomObject]$Runtime)
-
-  $nodeModules = Join-Path $Root 'node_modules'
-  $webDist = Join-Path $Root 'apps\web\dist'
-
   if ($Repair) {
-    Write-Step 'Che do sua loi: dang xoa dependency va web build cu...'
-    Remove-Item -LiteralPath $nodeModules -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $webDist -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Step 'Dang xoa dependency va web build cu...'
+    Remove-Item (Join-Path $Root 'node_modules') -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $Root 'apps\web\dist') -Recurse -Force -ErrorAction SilentlyContinue
   }
-
-  if (Test-PortableFiles) {
-    Write-Ok 'Runtime, dependency va web build da san sang. Khong can npm install.'
+  if (Test-AppFiles) {
+    Write-Ok 'Web build va runtime dependency da san sang.'
     return
   }
-
   if (-not $Runtime.Npm -or -not (Test-Path $Runtime.Npm)) {
-    throw 'Ban tai ve khong co dependency san va runtime khong co npm de tu sua. Hay tai lai goi Windows Portable.'
+    throw 'Goi tai ve bi thieu dependency. Hay tai lai Windows Portable hoac chay tren may co npm.'
   }
-
-  Write-Step 'Dang cai dependency lan dau...'
+  Write-Step 'Dang cai dependency...'
   & $Runtime.Npm install --no-audit --no-fund
-  if ($LASTEXITCODE -ne 0) { throw "npm install that bai voi ma loi $LASTEXITCODE." }
-
-  Write-Step 'Dang build giao dien production...'
+  if ($LASTEXITCODE -ne 0) { throw "npm install that bai: $LASTEXITCODE" }
+  Write-Step 'Dang build website production...'
   & $Runtime.Npm run build
-  if ($LASTEXITCODE -ne 0) { throw "npm run build that bai voi ma loi $LASTEXITCODE." }
-
-  if (-not (Test-PortableFiles)) {
-    throw 'Cai dat hoan tat nhung van thieu node_modules hoac apps\web\dist\index.html.'
-  }
-  Write-Ok 'Da cai va build ViPocket thanh cong.'
+  if ($LASTEXITCODE -ne 0) { throw "npm run build that bai: $LASTEXITCODE" }
+  if (-not (Test-AppFiles)) { throw 'Sau khi build van thieu file runtime.' }
 }
 
-function Test-Gateway {
+function Test-Website {
   try {
-    $health = Invoke-RestMethod -Uri $GatewayHealthUrl -TimeoutSec 2
-    return ($health.ok -eq $true -and $health.service -eq 'vipocket-gateway')
-  } catch {
-    return $false
-  }
-}
-
-function Test-Web {
-  try {
-    $response = Invoke-WebRequest -UseBasicParsing -Uri $WebUrl -TimeoutSec 2
-    return ($response.StatusCode -eq 200 -and $response.Content -match 'ViPocket')
+    $web = Invoke-WebRequest -UseBasicParsing -Uri $WebsiteUrl -TimeoutSec 2
+    $health = Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 2
+    return ($web.StatusCode -eq 200 -and $web.Content -match 'ViPocket' -and $health.ok -eq $true)
   } catch {
     return $false
   }
@@ -199,85 +167,67 @@ function Test-Web {
 
 function Stop-TrackedProcess {
   if (-not (Test-Path $PidFile)) { return }
-  $savedPid = (Get-Content -LiteralPath $PidFile -Raw).Trim()
+  $savedPid = (Get-Content $PidFile -Raw).Trim()
   if ($savedPid -match '^\d+$') {
-    $existing = Get-Process -Id ([int]$savedPid) -ErrorAction SilentlyContinue
-    if ($existing) {
+    $details = Get-CimInstance Win32_Process -Filter "ProcessId=$savedPid" -ErrorAction SilentlyContinue
+    if ($details -and $details.CommandLine -and $details.CommandLine.Contains($Root)) {
       & taskkill.exe /PID $savedPid /T /F 2>$null | Out-Null
-      Start-Sleep -Seconds 2
+      Start-Sleep -Seconds 1
     }
   }
-  Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+  Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
 
-function Start-Application {
+function Start-App {
   param([PSCustomObject]$Runtime)
-
-  $webReady = Test-Web
-  $gatewayReady = Test-Gateway
-  if ($webReady -and $gatewayReady) {
-    Write-Ok 'ViPocket dang chay san.'
+  if (Test-Website) {
+    Write-Ok "ViPocket dang chay tai $WebsiteUrl"
     return
   }
 
-  if ($webReady -xor $gatewayReady) {
-    Stop-TrackedProcess
-    $webReady = Test-Web
-    $gatewayReady = Test-Gateway
-    if ($webReady -xor $gatewayReady) {
-      throw 'Cong 5173 hoac 8787 dang bi mot ung dung khac chiem. Hay dong ung dung do roi chay lai.'
-    }
-  }
-
   Stop-TrackedProcess
-  Set-Content -LiteralPath $LogFile -Value "ViPocket startup: $(Get-Date -Format o)" -Encoding UTF8
-  Write-Step 'Dang khoi dong website va gateway production...'
+  Set-Content $LogFile "ViPocket startup: $(Get-Date -Format o)" -Encoding UTF8
+  Write-Step 'Dang khoi dong website va gateway tren cung cong 8787...'
+  $command = '"{0}" "{1}" 1>>"{2}" 2>&1' -f $Runtime.Node, $ServerEntry, $LogFile
+  $process = Start-Process cmd.exe -ArgumentList @('/d', '/c', $command) -WorkingDirectory $Root -WindowStyle Hidden -PassThru
+  Set-Content $PidFile $process.Id -Encoding ASCII
 
-  $command = '"{0}" "{1}" 1>>"{2}" 2>&1' -f $Runtime.Node, $RunnerPath, $LogFile
-  $process = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/c', $command) -WorkingDirectory $Root -WindowStyle Hidden -PassThru
-  Set-Content -LiteralPath $PidFile -Value $process.Id -Encoding ASCII
-
-  $deadline = (Get-Date).AddSeconds(180)
+  $deadline = (Get-Date).AddSeconds(120)
   do {
     Start-Sleep -Seconds 1
     if ($process.HasExited) {
-      $tail = if (Test-Path $LogFile) { (Get-Content -LiteralPath $LogFile -Tail 45) -join [Environment]::NewLine } else { 'Khong co log.' }
-      throw "Tien trinh ViPocket da dung som.`n`n$tail"
+      $tail = if (Test-Path $LogFile) { (Get-Content $LogFile -Tail 60) -join [Environment]::NewLine } else { 'Khong co log.' }
+      throw "ViPocket da dung som.`n`n$tail"
     }
-    $webReady = Test-Web
-    $gatewayReady = Test-Gateway
-  } until (($webReady -and $gatewayReady) -or (Get-Date) -ge $deadline)
+  } until ((Test-Website) -or (Get-Date) -ge $deadline)
 
-  if (-not ($webReady -and $gatewayReady)) {
-    $tail = if (Test-Path $LogFile) { (Get-Content -LiteralPath $LogFile -Tail 45) -join [Environment]::NewLine } else { 'Khong co log.' }
-    throw "Qua thoi gian cho website/gateway.`n`n$tail"
+  if (-not (Test-Website)) {
+    $tail = if (Test-Path $LogFile) { (Get-Content $LogFile -Tail 60) -join [Environment]::NewLine } else { 'Khong co log.' }
+    throw "Qua thoi gian cho ViPocket.`n`n$tail"
   }
-
-  Write-Ok "Website: $WebUrl"
-  Write-Ok "Gateway: $GatewayHealthUrl"
+  Write-Ok "Website va gateway: $WebsiteUrl"
 }
 
 try {
   Write-Host '============================================================' -ForegroundColor DarkCyan
-  Write-Host ' ViPocket-Xiaozhi 2.1 - WINDOWS ONE CLICK' -ForegroundColor Cyan
+  Write-Host ' ViPocket-Xiaozhi 2.2 - WINDOWS ONE CLICK' -ForegroundColor Cyan
   Write-Host '============================================================' -ForegroundColor DarkCyan
 
-  if (-not (Test-Path $RunnerPath)) { throw "Thieu $RunnerPath" }
-  Ensure-EnvironmentFile
-  $runtime = Resolve-NodeRuntime
+  Ensure-Environment
+  $runtime = Resolve-Runtime
   Write-Ok "Node.js $($runtime.Version) ($($runtime.Source))."
-  Ensure-ApplicationFiles -Runtime $runtime
-  Start-Application -Runtime $runtime
+  Ensure-AppFiles -Runtime $runtime
+  Start-App -Runtime $runtime
 
   if (-not $NoBrowser) {
-    Write-Step 'Dang mo ViPocket trong trinh duyet...'
-    Start-Process $WebUrl
+    Write-Step 'Dang mo ViPocket...'
+    Start-Process $WebsiteUrl
   }
 
   Write-Host ''
   Write-Host 'ViPocket da san sang. Co the dong cua so nay.' -ForegroundColor Green
-  Write-Host 'De dung he thong: nhap dup STOP-VIPOCKET.cmd' -ForegroundColor Gray
-  Write-Host 'De cau hinh Xiaozhi that: nhap dup CONFIGURE-XIAOZHI.cmd' -ForegroundColor Gray
+  Write-Host 'Dung he thong: STOP-VIPOCKET.cmd' -ForegroundColor Gray
+  Write-Host 'Cau hinh Xiaozhi: CONFIGURE-XIAOZHI.cmd' -ForegroundColor Gray
   Start-Sleep -Seconds 4
   exit 0
 } catch {

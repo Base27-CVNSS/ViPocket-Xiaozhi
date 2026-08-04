@@ -1,6 +1,6 @@
 {
   "name": "vipocket-xiaozhi",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": true,
   "description": "A bilingual browser voice client and secure gateway compatible with the Xiaozhi WebSocket protocol.",
   "workspaces": [

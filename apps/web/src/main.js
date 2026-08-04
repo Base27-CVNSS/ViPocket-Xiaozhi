@@ -1,15 +1,25 @@
 import './styles.css';
+import './otp.css';
 import { applyLanguage, messages } from './core/i18n.js';
 import { UiStateMachine } from './core/state-machine.js';
 import { createAbort, createHello, createListen, parseServerMessage } from './core/protocol.js';
 import { VoiceEngine } from './audio/voice-engine.js';
+import {
+  formatOtp,
+  isOtpExpired,
+  isValidOtp,
+  normalizeOtp,
+  remainingOtpSeconds,
+  withOtpExpiry
+} from './core/otp.js';
 
 const $ = (selector) => document.querySelector(selector);
 const storage = {
   get(key, fallback = null) {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
   },
-  set(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+  set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
+  remove(key) { localStorage.removeItem(key); }
 };
 
 const state = {
@@ -26,6 +36,7 @@ const state = {
   protocolSessionId: '',
   connectedAt: 0,
   pollTimer: null,
+  otpTimer: null,
   pttActive: false,
   gatewayReady: false
 };
@@ -35,7 +46,8 @@ storage.set('vipocket.clientId', state.clientId);
 
 function createDeviceId() {
   const bytes = crypto.getRandomValues(new Uint8Array(6));
-  return `web-${Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join(':')}`;
+  bytes[0] = (bytes[0] | 0x02) & 0xfe;
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join(':');
 }
 
 function t(key) {
@@ -82,7 +94,11 @@ async function api(path, options = {}) {
   });
   if (response.status === 204) return null;
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.message || `Gateway request failed (HTTP ${response.status}).`);
+  if (!response.ok) {
+    const error = new Error(data.message || `Gateway request failed (HTTP ${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
@@ -119,6 +135,7 @@ function updateLanguage() {
   applyLanguage(state.language);
   $('#languageButton').textContent = state.language === 'vi' ? 'EN' : 'VI';
   storage.set('vipocket.language', state.language);
+  if (state.activationSession?.id) renderActivation(state.activationSession, { restartTimer: false });
 }
 
 function updateNetwork() {
@@ -136,16 +153,99 @@ async function updateDiagnostics() {
   $('#gatewayValue').textContent = state.gatewayReady ? 'ONLINE' : 'OFFLINE';
 }
 
-function renderActivation(session) {
-  state.activationSession = session;
-  storage.set('vipocket.activationSession', session);
+function stopOtpTimers() {
+  clearInterval(state.pollTimer);
+  clearInterval(state.otpTimer);
+  state.pollTimer = null;
+  state.otpTimer = null;
+}
+
+function formatClock(seconds) {
+  if (seconds == null) return '--:--';
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+}
+
+function renderOtpCountdown() {
+  const session = state.activationSession;
+  const timer = $('#otpTimer');
+  const progress = $('#otpProgress');
+  const card = $('#activationCard');
+  const pollButton = $('#pollButton');
+  if (!session || session.status === 'activated') {
+    timer.textContent = session?.status === 'activated' ? '✓' : '--:--';
+    progress.style.width = session?.status === 'activated' ? '100%' : '0%';
+    progress.classList.remove('warning');
+    card.classList.toggle('otp-verified', session?.status === 'activated');
+    return;
+  }
+
+  const seconds = remainingOtpSeconds(session);
+  const total = Math.max(1, Math.ceil(Number(session.timeoutMs || 0) / 1000));
+  const ratio = seconds == null ? 1 : Math.max(0, Math.min(1, seconds / total));
+  timer.textContent = formatClock(seconds);
+  progress.style.width = `${Math.round(ratio * 100)}%`;
+  progress.classList.toggle('warning', ratio <= 0.25);
+
+  const expired = isOtpExpired(session);
+  card.classList.toggle('otp-expired', expired);
+  pollButton.disabled = expired || !isValidOtp(session.code);
+  $('#newOtpButton').classList.toggle('hidden', !expired);
+  if (expired) {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+    $('#activationState').textContent = state.language === 'vi' ? 'Hết hạn' : 'Expired';
+    showNotice($('#activationNotice'), t('activate.expired'), 'error');
+  }
+}
+
+function startOtpCountdown() {
+  clearInterval(state.otpTimer);
+  renderOtpCountdown();
+  if (!state.activationSession || state.activationSession.status === 'activated') return;
+  state.otpTimer = setInterval(renderOtpCountdown, 1000);
+}
+
+function renderActivation(session, { restartTimer = true } = {}) {
+  const normalized = withOtpExpiry(session);
+  state.activationSession = normalized;
+  storage.set('vipocket.activationSession', normalized);
   $('#deviceIdLabel').textContent = state.deviceId;
-  $('#activationState').textContent = session.status === 'activated' ? 'Activated' : 'Pending';
-  $('#activationState').classList.toggle('success', session.status === 'activated');
-  const code = String(session.code || '').replace(/\s/g, '');
-  $('#activationCode').textContent = code ? code.replace(/(.{3})/, '$1 ') : '------';
-  $('#activationMessage').textContent = session.message || '';
+
+  const activated = normalized.status === 'activated';
+  const code = normalizeOtp(normalized.code);
+  const validCode = activated || isValidOtp(code);
+  const expired = !activated && isOtpExpired(normalized);
+
+  $('#activationState').textContent = activated
+    ? (state.language === 'vi' ? 'Đã liên kết' : 'Linked')
+    : expired
+      ? (state.language === 'vi' ? 'Hết hạn' : 'Expired')
+      : (state.language === 'vi' ? 'Chờ OTP' : 'Waiting for OTP');
+  $('#activationState').classList.toggle('success', activated);
+  $('#activationCode').textContent = activated && !code ? '✓ LIÊN KẾT' : formatOtp(code);
+  $('#activationMessage').textContent = activated
+    ? t('activate.verified')
+    : normalized.message || t('activate.waiting');
   $('#activationCard').classList.remove('hidden');
+  $('#activationCard').classList.toggle('otp-verified', activated);
+  $('#activationCard').classList.toggle('otp-expired', expired);
+  $('#pollButton').disabled = !validCode || expired || activated;
+  $('#newOtpButton').classList.toggle('hidden', !expired && !activated);
+
+  if (!validCode) {
+    showNotice(
+      $('#activationNotice'),
+      state.language === 'vi'
+        ? 'OTA không trả về OTP đúng định dạng 6 chữ số. ViPocket đã từ chối hiển thị mã không hợp lệ.'
+        : 'OTA did not return a valid six-digit OTP. ViPocket rejected the malformed code.',
+      'error'
+    );
+  }
+
+  if (restartTimer) startOtpCountdown();
+  else renderOtpCountdown();
 }
 
 async function testGateway() {
@@ -162,9 +262,13 @@ async function testGateway() {
     $('#gatewayValue').textContent = 'ONLINE';
     log('Gateway connected', `${health.service} ${health.version}`);
     if (!health.activationConfigured) {
-      showNotice($('#setupNotice'), state.language === 'vi'
-        ? 'Gateway đang chạy nhưng chưa cấu hình XIAOZHI_OTA_URL hoặc WebSocket/token cố định.'
-        : 'Gateway is online but XIAOZHI_OTA_URL or fixed WebSocket/token is not configured.', 'warn');
+      showNotice(
+        $('#setupNotice'),
+        state.language === 'vi'
+          ? 'Gateway đang chạy ở chế độ ngoại tuyến và chưa có upstream Xiaozhi.'
+          : 'The gateway is running offline without a Xiaozhi upstream.',
+        'warn'
+      );
     }
     ui.move('activate');
   } catch (error) {
@@ -178,11 +282,25 @@ async function testGateway() {
   }
 }
 
+async function deletePreviousActivation() {
+  const sessionId = state.activationSession?.id;
+  stopOtpTimers();
+  state.activationSession = null;
+  storage.remove('vipocket.activationSession');
+  if (!sessionId) return;
+  try {
+    await api(`/api/v1/activation/${sessionId}`, { method: 'DELETE', headers: {} });
+  } catch {
+    // The previous session may already be expired or belong to an old gateway.
+  }
+}
+
 async function requestActivation() {
   const button = $('#requestCodeButton');
-  setButtonBusy(button, true, state.language === 'vi' ? 'Đang yêu cầu…' : 'Requesting…');
+  setButtonBusy(button, true, state.language === 'vi' ? 'Đang yêu cầu OTP…' : 'Requesting OTP…');
   showNotice($('#activationNotice'));
   try {
+    await deletePreviousActivation();
     const session = await api('/api/v1/activation', {
       method: 'POST',
       body: JSON.stringify({
@@ -191,7 +309,7 @@ async function requestActivation() {
         language: state.deviceLanguage,
         systemInfo: {
           client: 'ViPocket-Xiaozhi',
-          version: '2.0.0',
+          version: '2.3.0',
           platform: navigator.platform,
           userAgent: navigator.userAgent,
           capabilities: await VoiceEngine.capabilities()
@@ -200,8 +318,11 @@ async function requestActivation() {
     });
     renderActivation(session);
     log('Activation session created', session.id);
-    if (session.status === 'activated') completeActivation(session);
-    else startPolling(session.pollAfterMs);
+    if (session.status === 'activated') {
+      completeActivation(session);
+    } else if (isValidOtp(session.code)) {
+      showNotice($('#activationNotice'), t('activate.instructions'), 'info');
+    }
   } catch (error) {
     showNotice($('#activationNotice'), error.message, 'error');
     log('Activation request failed', error.message);
@@ -212,19 +333,42 @@ async function requestActivation() {
 
 function startPolling(interval = 2500) {
   clearInterval(state.pollTimer);
+  if (!state.activationSession || isOtpExpired(state.activationSession)) return;
   state.pollTimer = setInterval(() => pollActivation({ silent: true }), Math.max(1000, interval));
 }
 
 async function pollActivation({ silent = false } = {}) {
   if (!state.activationSession?.id) return;
+  if (isOtpExpired(state.activationSession)) {
+    renderOtpCountdown();
+    return;
+  }
+
   const button = $('#pollButton');
-  if (!silent) setButtonBusy(button, true, state.language === 'vi' ? 'Đang kiểm tra…' : 'Checking…');
+  if (!silent) setButtonBusy(button, true, state.language === 'vi' ? 'Đang xác minh OTP…' : 'Verifying OTP…');
   try {
     const session = await api(`/api/v1/activation/${state.activationSession.id}`, { method: 'GET', headers: {} });
     renderActivation(session);
-    if (session.status === 'activated') completeActivation(session);
-    else if (!silent) showNotice($('#activationNotice'), state.language === 'vi' ? 'Thiết bị vẫn đang chờ liên kết.' : 'The device is still waiting for pairing.', 'warn');
+    if (session.status === 'activated') {
+      completeActivation(session);
+    } else if (!silent) {
+      showNotice(
+        $('#activationNotice'),
+        state.language === 'vi'
+          ? 'Chưa thấy liên kết. ViPocket sẽ kiểm tra tự động cho đến khi OTP hết hạn.'
+          : 'Pairing is not visible yet. ViPocket will keep checking until the OTP expires.',
+        'warn'
+      );
+      startPolling(session.pollAfterMs);
+    }
   } catch (error) {
+    if (error.status === 404) {
+      stopOtpTimers();
+      state.activationSession = null;
+      storage.remove('vipocket.activationSession');
+      $('#activationCard').classList.add('otp-expired');
+      $('#newOtpButton').classList.remove('hidden');
+    }
     if (!silent) showNotice($('#activationNotice'), error.message, 'error');
     log('Activation polling failed', error.message);
   } finally {
@@ -233,10 +377,9 @@ async function pollActivation({ silent = false } = {}) {
 }
 
 function completeActivation(session) {
-  clearInterval(state.pollTimer);
-  state.pollTimer = null;
-  renderActivation(session);
-  showNotice($('#activationNotice'), state.language === 'vi' ? 'Kích hoạt thành công. Có thể mở phiên thoại.' : 'Activation complete. The voice session is ready.', 'success');
+  stopOtpTimers();
+  renderActivation({ ...session, status: 'activated' }, { restartTimer: false });
+  showNotice($('#activationNotice'), t('activate.verified'), 'success');
   log('Device activated', session.id);
   ui.move('talk');
 }
@@ -413,7 +556,10 @@ function restoreUi() {
   $('#listenMode').value = state.listenMode;
   $('#opusBitrate').value = String(state.bitrate);
   $('#bargeInToggle').checked = state.bargeIn;
-  if (state.activationSession?.id) renderActivation(state.activationSession);
+  if (state.activationSession?.id) {
+    renderActivation(state.activationSession);
+    if (state.activationSession.status === 'activated') ui.move('talk', { force: true });
+  }
 }
 
 $('#languageButton').addEventListener('click', () => {
@@ -435,12 +581,16 @@ $('#saveSettingsButton').addEventListener('click', (event) => {
 });
 $('#testGatewayButton').addEventListener('click', testGateway);
 $('#requestCodeButton').addEventListener('click', requestActivation);
+$('#newOtpButton').addEventListener('click', requestActivation);
 $('#pollButton').addEventListener('click', () => pollActivation());
 $('#copyCodeButton').addEventListener('click', async () => {
-  const code = String(state.activationSession?.code || '');
-  if (!code) return;
+  const code = normalizeOtp(state.activationSession?.code);
+  if (!isValidOtp(code)) return;
   await navigator.clipboard.writeText(code);
-  log('Activation code copied');
+  const button = $('#copyCodeButton');
+  button.classList.add('copied');
+  window.setTimeout(() => button.classList.remove('copied'), 900);
+  log('Activation OTP copied');
 });
 $('#connectButton').addEventListener('click', () => {
   if (state.socket?.readyState === WebSocket.OPEN) disconnectVoice();
@@ -460,7 +610,7 @@ $('#clearLogButton').addEventListener('click', () => { $('#eventLog').textConten
 window.addEventListener('online', updateNetwork);
 window.addEventListener('offline', updateNetwork);
 window.addEventListener('beforeunload', () => {
-  clearInterval(state.pollTimer);
+  stopOtpTimers();
   disconnectVoice();
   voice.close();
 });
@@ -478,4 +628,5 @@ updateLanguage();
 updateNetwork();
 restoreUi();
 updateDiagnostics();
+$('#bootShell')?.setAttribute('hidden', '');
 log('ViPocket initialized', `${state.deviceId} / ${state.clientId}`);

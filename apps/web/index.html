@@ -42,7 +42,7 @@
             <span class="section-label" data-i18n="console.label">TRUNG TÂM KẾT NỐI</span>
             <h2 id="stageTitle" data-i18n="stage.setup.title">Thiết lập gateway</h2>
           </div>
-          <span class="secure-chip" data-i18n="console.secure">Token ở máy chủ</span>
+          <span class="secure-chip">Official Cloud mặc định</span>
         </div>
 
         <nav class="steps" aria-label="Setup progress">
@@ -56,7 +56,7 @@
         <div class="stage" id="setupStage">
           <div class="mascot" aria-hidden="true"><span>•ᴗ•</span></div>
           <h3 data-i18n="setup.heading">Kết nối gateway an toàn</h3>
-          <p data-i18n="setup.description">Gateway giữ token Xiaozhi ở phía máy chủ và chuyển tiếp WebSocket với đúng header Device-Id, Client-Id.</p>
+          <p>Gateway cục bộ tự dùng OTA chính thức của dự án Xiaozhi. Token WebSocket không bao giờ được lưu trong trình duyệt.</p>
           <label class="field">
             <span data-i18n="setup.gatewayUrl">Địa chỉ gateway</span>
             <input id="gatewayUrl" value="http://127.0.0.1:8787" inputmode="url" autocomplete="url" />
@@ -79,7 +79,7 @@
             <span class="badge" id="activationState" data-i18n="activate.ready">Sẵn sàng</span>
           </div>
           <h3 data-i18n="activate.heading">Nhận mã kích hoạt thật</h3>
-          <p data-i18n="activate.description">Mã phải do endpoint OTA/Xiaozhi cấp. ViPocket không tạo số ngẫu nhiên để giả lập pairing.</p>
+          <p>Mã được cấp trực tiếp từ OTA chính thức hoặc máy chủ tùy chỉnh. ViPocket không tạo mã ngẫu nhiên.</p>
           <button class="primary-button" id="requestCodeButton" type="button" data-i18n="activate.request">Yêu cầu mã kích hoạt</button>
           <div class="activation-card hidden" id="activationCard">
             <span data-i18n="activate.codeLabel">MÃ XÁC MINH THIẾT BỊ</span>
@@ -131,7 +131,7 @@
     </section>
 
     <footer>
-      <span>ViPocket-Xiaozhi v2.2.1 · MIT</span>
+      <span>ViPocket-Xiaozhi v2.3.0 · MIT</span>
       <span data-i18n="footer.note">Dự án độc lập, tương thích giao thức; không thuộc xiaozhi.me.</span>
     </footer>
   </div>
@@ -146,6 +146,7 @@
     </form>
   </dialog>
 
+  <script type="module" src="/src/bootstrap.js"></script>
   <script type="module" src="/src/main.js"></script>
   <script type="module">
     window.addEventListener('load', () => {

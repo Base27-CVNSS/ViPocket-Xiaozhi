@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 export const rootDir = resolve(currentDir, '..', '..', '..');
+export const OFFICIAL_OTA_URL = 'https://api.tenclass.net/xiaozhi/ota/';
 
 function loadDotEnv(filePath) {
   if (!existsSync(filePath)) return;
@@ -32,17 +33,55 @@ function integer(name, fallback, minimum, maximum) {
   return value;
 }
 
-function optionalUrl(name) {
+function optionalUrl(name, protocols) {
   const value = String(process.env[name] || '').trim();
   if (!value) return '';
   const parsed = new URL(value);
-  if (!['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol)) {
+  if (!protocols.includes(parsed.protocol)) {
     throw new Error(`${name} uses an unsupported protocol.`);
   }
   return parsed.toString();
 }
 
+function mode() {
+  const value = String(process.env.XIAOZHI_MODE || 'auto').trim().toLowerCase();
+  if (!['auto', 'official', 'custom', 'offline'].includes(value)) {
+    throw new Error('XIAOZHI_MODE must be auto, official, custom, or offline.');
+  }
+  return value;
+}
+
 const port = integer('PORT', 8787, 1, 65535);
+const selectedMode = mode();
+const customOtaUrl = optionalUrl('XIAOZHI_OTA_URL', ['http:', 'https:']);
+const fixedWsUrl = optionalUrl('XIAOZHI_WS_URL', ['ws:', 'wss:']);
+const fixedAccessToken = String(process.env.XIAOZHI_ACCESS_TOKEN || '').trim();
+const hasFixedTransport = Boolean(fixedWsUrl && fixedAccessToken);
+
+let connectionMode = selectedMode;
+let otaUrl = '';
+
+if (selectedMode === 'offline') {
+  connectionMode = 'offline';
+} else if (selectedMode === 'official') {
+  connectionMode = 'official';
+  otaUrl = OFFICIAL_OTA_URL;
+} else if (selectedMode === 'custom') {
+  if (!customOtaUrl && !hasFixedTransport) {
+    throw new Error('Custom mode requires XIAOZHI_OTA_URL or both XIAOZHI_WS_URL and XIAOZHI_ACCESS_TOKEN.');
+  }
+  connectionMode = hasFixedTransport && !customOtaUrl ? 'fixed' : 'custom';
+  otaUrl = customOtaUrl;
+} else if (hasFixedTransport) {
+  connectionMode = 'fixed';
+} else if (customOtaUrl) {
+  connectionMode = 'custom';
+  otaUrl = customOtaUrl;
+} else {
+  connectionMode = 'official';
+  otaUrl = OFFICIAL_OTA_URL;
+}
+
 const defaultOrigins = [
   `http://127.0.0.1:${port}`,
   `http://localhost:${port}`,
@@ -58,9 +97,12 @@ export const config = Object.freeze({
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean),
-  otaUrl: optionalUrl('XIAOZHI_OTA_URL'),
-  fixedWsUrl: optionalUrl('XIAOZHI_WS_URL'),
-  fixedAccessToken: String(process.env.XIAOZHI_ACCESS_TOKEN || '').trim(),
+  connectionMode,
+  otaUrl,
+  fixedWsUrl,
+  fixedAccessToken,
+  officialOtaUrl: OFFICIAL_OTA_URL,
+  otaTimeoutMs: integer('XIAOZHI_OTA_TIMEOUT_MS', 15000, 3000, 60000),
   activationPollMs: integer('ACTIVATION_POLL_MS', 2500, 1000, 30000),
   sessionTtlMs: integer('SESSION_TTL_MS', 1800000, 60000, 86400000),
   ticketTtlMs: integer('TICKET_TTL_MS', 60000, 10000, 300000),

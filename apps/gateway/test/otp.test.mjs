@@ -10,12 +10,15 @@ import {
   withOtpExpiry
 } from '../../web/src/core/otp.js';
 
-test('normalizes and formats only a six-digit OTP', () => {
+test('normalizes and formats only an exact six-digit OTP', () => {
   assert.equal(normalizeOtp(' 123-456 '), '123456');
   assert.equal(formatOtp('123456'), '123 456');
   assert.equal(isValidOtp('123456'), true);
   assert.equal(isValidOtp('12345'), false);
+  assert.equal(isValidOtp('1234567'), false);
   assert.equal(isValidOtp('ABC123'), false);
+  assert.equal(formatOtp('1234567'), '——— ———');
+  assert.equal(formatOtp('ABC123'), '——— ———');
 });
 
 test('stores a fixed OTP expiry instead of extending it during polling', () => {

@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$Version = '2.2.1'
+$Version = '2.3.0'
 $Root = Split-Path -Parent $PSScriptRoot
 $StateDir = Join-Path $Root '.vipocket'
 $LogDir = Join-Path $Root 'logs'
@@ -124,14 +124,28 @@ function Ensure-Environment {
     $example = Join-Path $Root '.env.example'
     if (-not (Test-Path $example)) { throw 'Thieu .env.example.' }
     Copy-Item $example $envFile
-    Write-Ok 'Da tao .env mac dinh.'
+    Write-Ok 'Da tao .env voi Xiaozhi Official Cloud mac dinh.'
+    return
+  }
+
+  $content = Get-Content $envFile -Raw
+  if ($content -notmatch '(?m)^\s*XIAOZHI_MODE\s*=') {
+    Add-Content $envFile "`r`n# Added automatically by ViPocket 2.3`r`nXIAOZHI_MODE=auto" -Encoding UTF8
+    Write-Ok 'Da nang cap .env cu sang che do auto/official.'
   }
 }
 
 function Test-AppFiles {
-  (Test-Path $ServerEntry) -and
-  (Test-Path (Join-Path $Root 'apps\web\dist\index.html')) -and
-  (Test-Path (Join-Path $Root 'node_modules\ws'))
+  $distIndex = Join-Path $Root 'apps\web\dist\index.html'
+  if (-not (Test-Path $ServerEntry)) { return $false }
+  if (-not (Test-Path (Join-Path $Root 'node_modules\ws'))) { return $false }
+  if (-not (Test-Path $distIndex)) { return $false }
+  try {
+    $html = Get-Content $distIndex -Raw
+    return ($html -match 'v2\.3\.0' -and $html -match 'bootstrap')
+  } catch {
+    return $false
+  }
 }
 
 function Ensure-AppFiles {
@@ -142,19 +156,19 @@ function Ensure-AppFiles {
     Remove-Item (Join-Path $Root 'apps\web\dist') -Recurse -Force -ErrorAction SilentlyContinue
   }
   if (Test-AppFiles) {
-    Write-Ok 'Web build va runtime dependency da san sang.'
+    Write-Ok 'Web build 2.3 va runtime dependency da san sang.'
     return
   }
   if (-not $Runtime.Npm -or -not (Test-Path $Runtime.Npm)) {
-    throw 'Goi tai ve bi thieu dependency. Hay tai lai Windows Portable hoac chay tren may co npm.'
+    throw 'Goi tai ve bi thieu dependency hoac web build 2.3. Hay tai lai Windows Portable.'
   }
-  Write-Step 'Dang cai dependency...'
+  Write-Step 'Dang cai/cap nhat dependency...'
   & $Runtime.Npm install --no-audit --no-fund
   if ($LASTEXITCODE -ne 0) { throw "npm install that bai: $LASTEXITCODE" }
-  Write-Step 'Dang build website production...'
+  Write-Step 'Dang build website production 2.3...'
   & $Runtime.Npm run build
   if ($LASTEXITCODE -ne 0) { throw "npm run build that bai: $LASTEXITCODE" }
-  if (-not (Test-AppFiles)) { throw 'Sau khi build van thieu file runtime.' }
+  if (-not (Test-AppFiles)) { throw 'Sau khi build van thieu web build 2.3 hoac dependency runtime.' }
 }
 
 function Test-Website {
@@ -205,9 +219,6 @@ function Start-App {
   Remove-Item $LogFile, $ErrorLog -Force -ErrorAction SilentlyContinue
   Write-Step 'Dang khoi dong website va gateway tren cung cong 8787...'
 
-  # Start node.exe directly. This avoids cmd.exe /c quote handling when Node is
-  # installed under C:\Program Files\nodejs and makes the stored PID the real
-  # server process rather than a temporary command shell.
   $startParameters = @{
     FilePath = $Runtime.Node
     ArgumentList = ('"{0}"' -f $ServerEntry)
@@ -253,9 +264,9 @@ try {
   }
 
   Write-Host ''
-  Write-Host 'ViPocket da san sang. Co the dong cua so nay.' -ForegroundColor Green
+  Write-Host 'ViPocket da san sang. Official Cloud duoc bat mac dinh.' -ForegroundColor Green
   Write-Host 'Dung he thong: STOP-VIPOCKET.cmd' -ForegroundColor Gray
-  Write-Host 'Cau hinh Xiaozhi: CONFIGURE-XIAOZHI.cmd' -ForegroundColor Gray
+  Write-Host 'May chu tuy chinh: CONFIGURE-XIAOZHI.cmd' -ForegroundColor Gray
   Start-Sleep -Seconds 4
   exit 0
 } catch {

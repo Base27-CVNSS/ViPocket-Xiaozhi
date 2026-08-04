@@ -1,0 +1,42 @@
+const OTP_PATTERN = /^\d{6}$/;
+
+export function normalizeOtp(value) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  return digits.slice(0, 6);
+}
+
+export function isValidOtp(value) {
+  return OTP_PATTERN.test(normalizeOtp(value));
+}
+
+export function formatOtp(value) {
+  const otp = normalizeOtp(value);
+  if (!otp) return '——— ———';
+  return otp.length > 3 ? `${otp.slice(0, 3)} ${otp.slice(3)}` : otp;
+}
+
+export function activationExpiry(session, now = Date.now()) {
+  const stored = Number(session?.otpExpiresAt || 0);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  const timeoutMs = Number(session?.timeoutMs || 0);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return 0;
+  const updatedAt = Number(session?.updatedAt || session?.createdAt || now);
+  return updatedAt + timeoutMs;
+}
+
+export function remainingOtpSeconds(session, now = Date.now()) {
+  const expiresAt = activationExpiry(session, now);
+  if (!expiresAt) return null;
+  return Math.max(0, Math.ceil((expiresAt - now) / 1000));
+}
+
+export function isOtpExpired(session, now = Date.now()) {
+  const remaining = remainingOtpSeconds(session, now);
+  return remaining === 0;
+}
+
+export function withOtpExpiry(session, now = Date.now()) {
+  if (!session || typeof session !== 'object') return session;
+  const expiresAt = activationExpiry(session, now);
+  return expiresAt ? { ...session, otpExpiresAt: expiresAt } : { ...session };
+}

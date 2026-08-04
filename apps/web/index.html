@@ -32,7 +32,7 @@
           <article><strong>8/10</strong><span data-i18n="score.voice">Client thoại</span></article>
         </div>
         <div class="architecture-line" aria-label="Architecture summary">
-          <span>Browser</span><b>→</b><span>Local Gateway</span><b>→</b><span>Xiaozhi</span>
+          <span>Browser</span><b>→</b><span>Single Local Server</span><b>→</b><span>Xiaozhi</span>
         </div>
       </section>
 
@@ -56,10 +56,10 @@
         <div class="stage" id="setupStage">
           <div class="mascot" aria-hidden="true"><span>•ᴗ•</span></div>
           <h3 data-i18n="setup.heading">Kết nối gateway an toàn</h3>
-          <p data-i18n="setup.description">Gateway giữ token Xiaozhi ở phía máy chủ và chuyển tiếp WebSocket với đúng header Device-Id, Client-Id.</p>
+          <p data-i18n="setup.description">Website và gateway cùng chạy trong một tiến trình cục bộ, giữ token ở phía máy chủ và chuyển tiếp WebSocket với đúng Device-Id, Client-Id.</p>
           <label class="field">
-            <span data-i18n="setup.gatewayUrl">Địa chỉ gateway</span>
-            <input id="gatewayUrl" value="http://127.0.0.1:8787" inputmode="url" autocomplete="url" />
+            <span data-i18n="setup.gatewayUrl">Địa chỉ máy chủ cục bộ</span>
+            <input id="gatewayUrl" value="http://127.0.0.1:5173" inputmode="url" autocomplete="url" />
           </label>
           <label class="field">
             <span data-i18n="setup.language">Ngôn ngữ thiết bị</span>
@@ -125,13 +125,13 @@
         <article><small>Secure Context</small><strong id="secureContextValue">—</strong></article>
         <article><small>WebCodecs Opus</small><strong id="webCodecsValue">—</strong></article>
         <article><small>AudioWorklet</small><strong id="audioWorkletValue">—</strong></article>
-        <article><small>Gateway</small><strong id="gatewayValue">—</strong></article>
+        <article><small>Local Server</small><strong id="gatewayValue">—</strong></article>
       </div>
       <pre id="eventLog" aria-label="Event log"></pre>
     </section>
 
     <footer>
-      <span>ViPocket-Xiaozhi v2.1.0 · MIT</span>
+      <span>ViPocket-Xiaozhi v2.2.0 · MIT</span>
       <span data-i18n="footer.note">Dự án độc lập, tương thích giao thức; không thuộc xiaozhi.me.</span>
     </footer>
   </div>
@@ -147,13 +147,5 @@
   </dialog>
 
   <script type="module" src="/src/main.js"></script>
-  <script type="module">
-    window.addEventListener('load', () => {
-      window.setTimeout(() => {
-        const button = document.querySelector('#testGatewayButton');
-        if (button && !button.disabled) button.click();
-      }, 450);
-    }, { once: true });
-  </script>
 </body>
 </html>

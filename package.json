@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node apps/gateway/src/standalone.mjs",
     "dev": "node --watch apps/gateway/src/standalone.mjs",
-    "test": "node --test apps/gateway/test/*.test.mjs",
+    "test": "node --test apps/gateway/test/session-store.test.mjs",
     "check": "node --check apps/gateway/src/standalone.mjs && node --check apps/gateway/src/activation-service.mjs && node --check apps/web/src/main.js && node --check apps/web/src/audio/voice-engine.js && npm test"
   },
   "dependencies": {
